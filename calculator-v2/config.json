@@ -1,0 +1,166 @@
+{
+  "project_info": {
+    "name": "CoComelon Streaming Infrastructure Cost Calculator",
+    "version": "2.0.0",
+    "last_updated": "2024-09-14",
+    "description": "Interactive cost calculator with configurable assumptions for CoComelon streaming infrastructure planning"
+  },
+  
+  "real_data_baseline": {
+    "comment": "Starting DAU filtered by household % in Month 1. Research shows lower household percentage than expected.",
+    "current_dau": 4140,
+    "current_households": 2898,
+    "household_percentage": 0.45,
+    "peak_concurrent_ratio": 0.10,
+    "session_duration_minutes": {
+      "min": 15,
+      "max": 60,
+      "average": 37.5
+    }
+  },
+  
+  "growth_assumptions": {
+    "comment": "Seasonal adjustments for user activity patterns",
+    "existing_user_retention": 0.88,
+    "seasonal_multipliers": {
+      "january": 0.95,
+      "february": 0.98,
+      "march": 1.05,
+      "april": 1.08,
+      "may": 1.12,
+      "june": 1.15,
+      "july": 1.18,
+      "august": 1.15,
+      "september": 1.08,
+      "october": 1.05,
+      "november": 1.10,
+      "december": 1.20
+    }
+  },
+
+  "marketing_acquisition": {
+    "comment": "New user acquisition patterns that marketing can control for 12-month planning",
+    "new_user_monthly_targets": {
+      "month_1": 500,
+      "month_2": 1200,
+      "month_3": 2000,
+      "month_4": 2500,
+      "month_5": 2200,
+      "month_6": 2000,
+      "month_7": 1800,
+      "month_8": 1600,
+      "month_9": 1500,
+      "month_10": 1400,
+      "month_11": 1800,
+      "month_12": 2200
+    },
+    "new_user_cocomelon_interest": 0.95,
+    "referral_multiplier": 1.15,
+    "retention_curve": {
+      "month_1": 0.88,
+      "month_2": 0.82,
+      "month_3": 0.79,
+      "steady_state": 0.76
+    }
+  },
+  
+  "time_zone_patterns": {
+    "comment": "Hourly usage patterns based on children's viewing habits across US time zones",
+    "weekday_pattern": {
+      "description": "School days: minimal during school hours, peak after school",
+      "hours": {
+        "00": 0.006, "01": 0.006, "02": 0.006, "03": 0.006, "04": 0.006,
+        "05": 0.010, "06": 0.050, "07": 0.250, "08": 0.030, "09": 0.010,
+        "10": 0.010, "11": 0.010, "12": 0.010, "13": 0.010, "14": 0.010,
+        "15": 0.020, "16": 0.050, "17": 1.000, "18": 1.000, "19": 0.600,
+        "20": 0.100, "21": 0.006, "22": 0.006, "23": 0.006
+      }
+    },
+    "weekend_pattern": {
+      "description": "Weekends: flexible viewing throughout day",
+      "hours": {
+        "00": 0.002, "01": 0.002, "02": 0.002, "03": 0.002, "04": 0.002,
+        "05": 0.002, "06": 0.010, "07": 0.150, "08": 0.350, "09": 0.500,
+        "10": 0.600, "11": 0.650, "12": 0.700, "13": 0.750, "14": 0.700,
+        "15": 0.650, "16": 0.700, "17": 0.750, "18": 0.700, "19": 0.550,
+        "20": 0.250, "21": 0.002, "22": 0.002, "23": 0.002
+      }
+    },
+    "timezone_distribution": {
+      "eastern": 0.47,
+      "central": 0.29,
+      "mountain": 0.07,
+      "pacific": 0.17
+    }
+  },
+  
+  "infrastructure_specs": {
+    "comment": "AWS GameLift Streams instance specifications and availability timeline",
+    "instance_types": {
+      "gen4n_high": {
+        "description": "NVIDIA T4 - Cost optimized launch option",
+        "gpu": "NVIDIA T4 Tensor GPU",
+        "vcpu": 4,
+        "vram_gb": 8,
+        "ram_gb": 16,
+        "sessions_per_host": 2,
+        "hourly_rate": 0.50,
+        "available_from_month": 1,
+        "notes": "Most cost-effective, sufficient for 1080p kids content"
+      },
+      "gen5n_high": {
+        "description": "NVIDIA A10G - Performance balanced",
+        "gpu": "NVIDIA A10G Tensor GPU", 
+        "vcpu": 4,
+        "vram_gb": 12,
+        "ram_gb": 16,
+        "sessions_per_host": 4,
+        "hourly_rate": 0.77,
+        "available_from_month": 1,
+        "notes": "Best efficiency option at launch, 4:1 multi-tenancy"
+      },
+      "g6n_high": {
+        "description": "NVIDIA L4 - High capacity",
+        "gpu": "NVIDIA L4 Tensor GPU",
+        "vcpu": 8, 
+        "vram_gb": 24,
+        "ram_gb": 32,
+        "sessions_per_host": 8,
+        "hourly_rate": 1.50,
+        "available_from_month": 3,
+        "notes": "Maximum efficiency with 8:1 multi-tenancy, available Q1"
+      }
+    },
+    "capacity_planning": {
+      "always_on_percentage": 0.30,
+      "peak_buffer_percentage": 0.15,
+      "storage_cost_per_gb_month": 0.03,
+      "storage_gb_required": 100
+    }
+  },
+  
+  "business_model": {
+    "comment": "Revenue and cost assumptions for unit economics",
+    "subscription_price": 12.99,
+    "conversion_rate": 0.20,
+    "customer_acquisition_cost": 25.00,
+    "marketing_spend_per_user": 5.00,
+    "content_cost_per_user_month": 0.05,
+    "support_cost_per_user_month": 0.02
+  },
+  
+  "analysis_settings": {
+    "projection_months": 12,
+    "confidence_interval": 0.90,
+    "monte_carlo_simulations": 1000,
+    "cost_sensitivity_analysis": {
+      "dau_scenarios": [25000, 35000, 45000, 55000, 65000, 75000, 100000],
+      "growth_rate_scenarios": [0.05, 0.08, 0.10, 0.12, 0.15],
+      "instance_availability_scenarios": {
+        "conservative": {"gen5n_month": 8, "g6n_month": 15},
+        "baseline": {"gen5n_month": 6, "g6n_month": 12},
+        "optimistic": {"gen5n_month": 4, "g6n_month": 9}
+      }
+    }
+  }
+}
