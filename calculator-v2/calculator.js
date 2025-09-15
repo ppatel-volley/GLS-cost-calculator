@@ -4,82 +4,70 @@
 const defaultConfig = {
     real_data_baseline: {
         current_dau: 4140,
-        household_percentage: 0.45, // Research: Lower than expected - most users are individual accounts
-        peak_concurrent_ratio: 0.10
+        household_percentage: 0.1, // Updated from user's saved value
+        peak_concurrent_ratio: 0.1
     },
     growth_assumptions: {
-        monthly_growth_rate: 0.10,
+        monthly_growth_rate: 0.2, // Updated from user's saved value
         existing_user_retention: 0.88,
         seasonal_multipliers: {
             january: 0.95, february: 0.98, march: 1.05, april: 1.08,
             may: 1.12, june: 1.15, july: 1.18, august: 1.15,
-            september: 1.08, october: 1.05, november: 1.10, december: 1.20
+            september: 1.08, october: 1.05, november: 1.1, december: 1.2
         }
     },
     marketing_acquisition: {
         comment: "New user acquisition patterns that marketing can control",
         new_user_monthly_targets: {
-            month_1: 500,   // Launch month - conservative
-            month_2: 1200,  // Ramp up marketing
-            month_3: 2000,  // Full campaign
-            month_4: 2500,  // Peak acquisition
-            month_5: 2200,  // Sustained growth
-            month_6: 2000,  // Market saturation
-            month_7: 1800,  // Organic + referrals
-            month_8: 1600,  // Steady state
-            month_9: 1500,  // Holiday prep
-            month_10: 1400, // Maintenance
-            month_11: 1800, // Holiday boost
-            month_12: 2200  // Year-end push
+            month_1: 500,
+            month_2: 1200,
+            month_3: 2000,
+            month_4: 2500,
+            month_5: 2200,
+            month_6: 2000,
+            month_7: 1800,
+            month_8: 1600,
+            month_9: 1500,
+            month_10: 1400,
+            month_11: 1800,
+            month_12: 2200
         },
-        new_user_cocomelon_interest: 1.0, // All new users are CoComelon users (for capacity planning)
-        referral_multiplier: 1.0, // Direct new user inputs - no referral complexity
+        new_user_cocomelon_interest: 1, // Updated from user's saved value
+        referral_multiplier: 1, // Updated from user's saved value
         retention_curve: {
-            month_1: 0.88, // 88% stay after first month
-            month_2: 0.82, // 82% stay after second month  
-            month_3: 0.79, // 79% stay after third month
-            steady_state: 0.76 // Long-term retention rate
+            month_1: 0.8, // Updated from user's saved value
+            month_2: 0.82,
+            month_3: 0.79,
+            steady_state: 0.76
         }
     },
     time_zone_patterns: {
         weekday_pattern: {
             hours: {
                 "0": 0.006, "1": 0.006, "2": 0.006, "3": 0.006, "4": 0.006,
-                "5": 0.010, "6": 0.050, "7": 0.250, "8": 0.030, "9": 0.010,
-                "10": 0.010, "11": 0.010, "12": 0.010, "13": 0.010, "14": 0.010,
-                "15": 0.020, "16": 0.050, "17": 1.000, "18": 1.000, "19": 0.600,
-                "20": 0.100, "21": 0.006, "22": 0.006, "23": 0.006
+                "5": 0.01, "6": 0.05, "7": 0.25, "8": 0.3, "9": 0.05,
+                "10": 0.01, "11": 0.01, "12": 0.01, "13": 0.01, "14": 0.01,
+                "15": 0.35, "16": 0.5, "17": 1, "18": 1, "19": 0.6,
+                "20": 0.1, "21": 0.006, "22": 0.006, "23": 0.006
             }
         },
         weekend_pattern: {
             hours: {
                 "0": 0.002, "1": 0.002, "2": 0.002, "3": 0.002, "4": 0.002,
-                "5": 0.002, "6": 0.010, "7": 0.150, "8": 0.350, "9": 0.500,
-                "10": 0.600, "11": 0.650, "12": 0.700, "13": 0.750, "14": 0.700,
-                "15": 0.650, "16": 0.700, "17": 0.750, "18": 0.700, "19": 0.550,
-                "20": 0.250, "21": 0.002, "22": 0.002, "23": 0.002
+                "5": 0.002, "6": 0.01, "7": 0.15, "8": 0.35, "9": 0.5,
+                "10": 0.6, "11": 0.65, "12": 0.7, "13": 0.75, "14": 0.7,
+                "15": 0.65, "16": 0.7, "17": 0.75, "18": 0.7, "19": 0.55,
+                "20": 0.25, "21": 0.002, "22": 0.002, "23": 0.002
             }
         }
     },
     infrastructure_specs: {
         instance_types: {
-            gen4n_high: {
-                description: "NVIDIA T4 - Cost optimized launch option",
-                sessions_per_host: 2,
-                hourly_rate: 0.50,
-                available_from_month: 1
-            },
-            gen5n_high: {
-                description: "NVIDIA A10G - Performance balanced",
-                sessions_per_host: 4,
+            gen4n_mid: {
+                description: "NVIDIA T4 - Mid capacity",
+                sessions_per_host: 6,
                 hourly_rate: 0.77,
                 available_from_month: 1
-            },
-            g6n_high: {
-                description: "NVIDIA L4 - High capacity",
-                sessions_per_host: 8,
-                hourly_rate: 1.50,
-                available_from_month: 3
             }
         },
         capacity_planning: {
@@ -118,10 +106,45 @@ function isPeakHour(hour, isWeekend) {
 
 // Initialize the interface
 function initializeInterface() {
+    // First, load any saved configuration from previous session
+    const hadSavedConfig = loadSavedConfig();
+
     loadDefaultValues();
     createHourlyPatternInputs();
-    createInstanceConfigs();
     createMonthTabs();
+
+    // Show notification if we loaded saved config
+    if (hadSavedConfig) {
+        showConfigLoadedNotification();
+    }
+}
+
+function showConfigLoadedNotification() {
+    // Create a temporary notification
+    const notification = document.createElement('div');
+    notification.innerHTML = '📂 Loaded your saved settings from previous session';
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #28a745;
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 1000;
+        font-size: 14px;
+        font-weight: 500;
+    `;
+
+    document.body.appendChild(notification);
+
+    // Remove notification after 3 seconds
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
+    }, 3000);
 }
 
 function loadDefaultValues() {
@@ -206,52 +229,6 @@ function createHourlyPatternInputs() {
     }
 }
 
-function createInstanceConfigs() {
-    const container = document.getElementById('instance_configs');
-    const instances = defaultConfig.infrastructure_specs.instance_types;
-
-    Object.keys(instances).forEach(instanceKey => {
-        const instance = instances[instanceKey];
-        const div = document.createElement('div');
-        div.className = 'instance-config';
-        div.innerHTML = `
-            <h5>${instanceKey} - ${instance.description}</h5>
-            <div class="instance-row">
-                <div class="form-group">
-                    <div class="label-with-tooltip">
-                        <label>Sessions/Host</label>
-                        <div class="tooltip">
-                            <span class="tooltip-icon">?</span>
-                            <span class="tooltiptext">How many kids can stream simultaneously from one server. Higher = more efficient but more expensive servers.</span>
-                        </div>
-                    </div>
-                    <input type="number" id="${instanceKey}_sessions" value="${instance.sessions_per_host}" min="1">
-                </div>
-                <div class="form-group">
-                    <div class="label-with-tooltip">
-                        <label>Hourly Rate ($)</label>
-                        <div class="tooltip">
-                            <span class="tooltip-icon">?</span>
-                            <span class="tooltiptext">Cost per server per hour. AWS GameLift pricing for this instance type.</span>
-                        </div>
-                    </div>
-                    <input type="number" id="${instanceKey}_rate" value="${instance.hourly_rate}" min="0" step="0.01">
-                </div>
-                <div class="form-group">
-                    <div class="label-with-tooltip">
-                        <label>Available Month</label>
-                        <div class="tooltip">
-                            <span class="tooltip-icon">?</span>
-                            <span class="tooltiptext">Which month this server type becomes available. Earlier = available sooner for cost optimization.</span>
-                        </div>
-                    </div>
-                    <input type="number" id="${instanceKey}_month" value="${instance.available_from_month}" min="1">
-                </div>
-            </div>
-        `;
-        container.appendChild(div);
-    });
-}
 
 function createMonthTabs() {
     const tabsContainer = document.getElementById('month_tabs');
@@ -312,15 +289,7 @@ function gatherConfiguration() {
         config.time_zone_patterns.weekend_pattern.hours[hour.toString()] = weekendValue;
     }
 
-    // Update instance configurations
-    Object.keys(config.infrastructure_specs.instance_types).forEach(instanceKey => {
-        config.infrastructure_specs.instance_types[instanceKey].sessions_per_host = 
-            parseInt(document.getElementById(`${instanceKey}_sessions`).value);
-        config.infrastructure_specs.instance_types[instanceKey].hourly_rate = 
-            parseFloat(document.getElementById(`${instanceKey}_rate`).value);
-        config.infrastructure_specs.instance_types[instanceKey].available_from_month = 
-            parseInt(document.getElementById(`${instanceKey}_month`).value);
-    });
+    // Instance configuration is now fixed (gen4n_mid only)
 
     return config;
 }
@@ -328,13 +297,51 @@ function gatherConfiguration() {
 function calculateResults() {
     try {
         const config = gatherConfiguration();
+
+        // Save user changes to config.json
+        saveConfigToFile(config);
+
         const results = runCalculations(config);
         currentResults = results;
         displayResults(results);
     } catch (error) {
-        document.getElementById('results_content').innerHTML = 
+        document.getElementById('results_content').innerHTML =
             `<div class="error">Calculation Error: ${error.message}</div>`;
     }
+}
+
+function saveConfigToFile(config) {
+    try {
+        // Auto-save user changes to localStorage for persistence
+        localStorage.setItem('cocomelon-calculator-config', JSON.stringify(config));
+
+        // Also update the defaultConfig in memory so current session uses new values
+        Object.assign(defaultConfig, config);
+
+        console.log('💾 Config auto-saved with user changes. Will persist on page reload.');
+
+    } catch (error) {
+        console.warn('Could not save config:', error.message);
+    }
+}
+
+
+function loadSavedConfig() {
+    try {
+        const savedConfig = localStorage.getItem('cocomelon-calculator-config');
+        if (savedConfig) {
+            const parsedConfig = JSON.parse(savedConfig);
+
+            // Merge saved config with default config
+            Object.assign(defaultConfig, parsedConfig);
+
+            console.log('📂 Loaded saved configuration from previous session');
+            return true;
+        }
+    } catch (error) {
+        console.warn('Could not load saved config:', error.message);
+    }
+    return false;
 }
 
 function runCalculations(config) {
@@ -762,10 +769,53 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                 <code style="background: white; padding: 5px; border-radius: 3px;">
                     Servers Needed per Hour = CEIL(Concurrent Users × Hour Multiplier ÷ Sessions per Server)
                 </code><br><br>
-                <strong>Example:</strong> At ${peakTime}, ${users.peak_concurrent.toLocaleString()} peak × 1.0 multiplier ÷ ${costs.sessions_per_host} streams = ${Math.ceil(users.peak_concurrent / costs.sessions_per_host)} servers needed
+                <strong>Weekday Example:</strong> At ${peakTime}, ${users.peak_concurrent.toLocaleString()} peak × 1.0 multiplier ÷ ${costs.sessions_per_host} streams = ${Math.ceil(users.peak_concurrent / costs.sessions_per_host)} servers needed<br>
+                <strong>Weekend Example:</strong> At 1:00 PM, ${users.peak_concurrent.toLocaleString()} peak × 0.75 multiplier ÷ ${costs.sessions_per_host} streams = ${Math.ceil(users.peak_concurrent * 0.75 / costs.sessions_per_host)} servers needed
+            </div>
+
+            <div style="background: #f0f8ff; padding: 15px; border-radius: 6px; border-left: 4px solid #4a90e2; margin-top: 15px;">
+                <strong>🔍 Daily Calculation Verification</strong><br><br>
+                <strong>Weekday (School Day Pattern):</strong><br>
+                <div style="font-family: monospace; background: white; padding: 10px; border-radius: 4px; margin: 8px 0;">
+                    ${generateHourlyBreakdown(costs.weekday_hours, users.peak_concurrent, costs.sessions_per_host, costs.hourly_rate, 'weekday')}
+                </div>
+                <strong>Daily Total: $${costs.monthly_totals.weekday_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong><br><br>
+
+                <strong>Weekend (Flexible Day Pattern):</strong><br>
+                <div style="font-family: monospace; background: white; padding: 10px; border-radius: 4px; margin: 8px 0;">
+                    ${generateHourlyBreakdown(costs.weekend_hours, users.peak_concurrent, costs.sessions_per_host, costs.hourly_rate, 'weekend')}
+                </div>
+                <strong>Daily Total: $${costs.monthly_totals.weekend_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong>
             </div>
         </div>
     `;
+}
+
+function generateHourlyBreakdown(hourlyData, peakConcurrent, sessionsPerHost, hourlyRate, dayType) {
+    // Show key hours with calculations for verification
+    const keyHours = dayType === 'weekday'
+        ? ['7', '8', '12', '15', '17', '18', '19', '3'] // School day pattern
+        : ['9', '12', '13', '17', '18', '20', '3']; // Weekend pattern
+
+    let breakdown = '';
+    let totalCost = 0;
+
+    keyHours.forEach(hour => {
+        const data = hourlyData[hour];
+        if (data) {
+            const multiplier = data.concurrent_users / peakConcurrent;
+            const servers = Math.ceil(data.concurrent_users / sessionsPerHost);
+            const cost = servers * hourlyRate;
+            totalCost += cost;
+
+            breakdown += `${formatTimeEST(parseInt(hour))}: ${data.concurrent_users.toLocaleString()} users × ${multiplier.toFixed(3)} = ${servers} servers × $${hourlyRate} = $${cost.toFixed(2)}<br>`;
+        }
+    });
+
+    const remaining = Object.keys(hourlyData).length - keyHours.length;
+    breakdown += `... (${remaining} more hours)<br>`;
+
+    return breakdown;
 }
 
 function generateYearOverview(results) {

@@ -295,6 +295,12 @@
             transform: translateY(0);
         }
 
+        @keyframes flash {
+            0% { background: #28a745; }
+            50% { background: #20c997; }
+            100% { background: #28a745; }
+        }
+
         .results-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -621,11 +627,10 @@
                 </div>
 
                 <div class="section">
-                    <h3>💻 Server Instance Types</h3>
+                    <h3>💻 Server Instance Type</h3>
                     <div class="section-description">
-                        Configure your available server types. Better servers can handle more simultaneous streams but cost more per hour. The calculator automatically picks the most cost-efficient option for each month.
+                        Using <strong>gen4n_mid (NVIDIA T4 - Mid capacity)</strong>: 6 sessions per host at $0.77/hour. This is the optimal balance of performance and cost-efficiency.
                     </div>
-                    <div id="instance_configs"></div>
                 </div>
 
                 <div class="section">
