@@ -130,6 +130,7 @@ function loadDefaultValues() {
     document.getElementById('household_percentage').value = defaultConfig.real_data_baseline.household_percentage;
     document.getElementById('peak_concurrent_ratio').value = defaultConfig.real_data_baseline.peak_concurrent_ratio;
     document.getElementById('monthly_growth_rate').value = defaultConfig.growth_assumptions.monthly_growth_rate;
+    document.getElementById('user_retention_rate').value = defaultConfig.marketing_acquisition.retention_curve.month_1;
     
     // Marketing acquisition values are now fixed at 1.0 (simplified model)
     
@@ -144,6 +145,25 @@ function loadDefaultValues() {
     document.getElementById('peak_buffer_percentage').value = defaultConfig.infrastructure_specs.capacity_planning.peak_buffer_percentage;
     document.getElementById('storage_gb_required').value = defaultConfig.infrastructure_specs.capacity_planning.storage_gb_required;
     document.getElementById('storage_cost_per_gb_month').value = defaultConfig.infrastructure_specs.capacity_planning.storage_cost_per_gb_month;
+
+    // Update display values and set up event listeners
+    updateDisplayValues();
+    setupEventListeners();
+}
+
+function updateDisplayValues() {
+    // Update the dynamic display spans in the Growth Logic Explanation
+    const householdPercentage = parseFloat(document.getElementById('household_percentage').value) * 100;
+    const retentionRate = parseFloat(document.getElementById('user_retention_rate').value) * 100;
+
+    document.getElementById('household_display').textContent = householdPercentage.toFixed(0);
+    document.getElementById('retention_display').textContent = retentionRate.toFixed(0);
+}
+
+function setupEventListeners() {
+    // Add event listeners to update display values when inputs change
+    document.getElementById('household_percentage').addEventListener('input', updateDisplayValues);
+    document.getElementById('user_retention_rate').addEventListener('input', updateDisplayValues);
 }
 
 function createHourlyPatternInputs() {
@@ -268,6 +288,7 @@ function gatherConfiguration() {
     config.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
     config.real_data_baseline.peak_concurrent_ratio = parseFloat(document.getElementById('peak_concurrent_ratio').value);
     config.growth_assumptions.monthly_growth_rate = parseFloat(document.getElementById('monthly_growth_rate').value);
+    config.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
     
     // Marketing acquisition values are fixed at 1.0 (simplified model - no UI controls needed)
     
@@ -650,6 +671,9 @@ function displayResults(results) {
 function generateCalculationBreakdown(monthData, month, allResults) {
     const users = monthData.users;
     const costs = monthData.costs;
+
+    // Get current configuration values from the form
+    const config = gatherConfiguration();
     
     // Find a peak hour for example calculation
     const peakHour = Object.keys(costs.weekday_hours).find(hour => 
@@ -675,11 +699,11 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                 <strong>Step 1: User Base & Peak Concurrent</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
                     ${month === 1 ? 
-                        `• Starting DAU: <strong>${defaultConfig.real_data_baseline.current_dau.toLocaleString()}</strong><br>
-                         • Household Filter: <strong>${(defaultConfig.real_data_baseline.household_percentage * 100).toFixed(0)}%</strong> → ${Math.floor(defaultConfig.real_data_baseline.current_dau * defaultConfig.real_data_baseline.household_percentage).toLocaleString()} existing users<br>
+                        `• Starting DAU: <strong>${config.real_data_baseline.current_dau.toLocaleString()}</strong><br>
+                         • Household Filter: <strong>${(config.real_data_baseline.household_percentage * 100).toFixed(0)}%</strong> → ${Math.floor(config.real_data_baseline.current_dau * config.real_data_baseline.household_percentage).toLocaleString()} existing users<br>
                          • New Marketing Users: <strong>${users.marketing_details.new_users.toLocaleString()}</strong> (all CoComelon users)<br>
                          • Month 1 Total: <strong>${users.total_users.toLocaleString()}</strong><br>` :
-                        `• Previous Month Retained: <strong>${Math.floor(allResults[month - 1].users.total_users * defaultConfig.marketing_acquisition.retention_curve.month_1).toLocaleString()}</strong> (${(defaultConfig.marketing_acquisition.retention_curve.month_1 * 100).toFixed(0)}% retention)<br>
+                        `• Previous Month Retained: <strong>${Math.floor(allResults[month - 1].users.total_users * config.marketing_acquisition.retention_curve.month_1).toLocaleString()}</strong> (${(config.marketing_acquisition.retention_curve.month_1 * 100).toFixed(0)}% retention)<br>
                          • New Marketing Users: <strong>${users.marketing_details.new_users.toLocaleString()}</strong> (all CoComelon users)<br>
                          • Month ${month} Total: <strong>${users.total_users.toLocaleString()}</strong><br>`
                     }

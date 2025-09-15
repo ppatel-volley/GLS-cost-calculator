@@ -494,6 +494,17 @@
 
                     <div class="form-group">
                         <div class="label-with-tooltip">
+                            <label>User Retention Rate</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users who continue using the service each month. 88% means you retain 88% of users from the previous month. Typical retention rates range from 70-95% depending on product engagement.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="user_retention_rate" value="0.88" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
                             <label>Growth Logic Explanation</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">ℹ️</span>
@@ -501,8 +512,8 @@
                             </div>
                         </div>
                         <div style="background: #e8f4f8; padding: 15px; border-radius: 6px; font-size: 0.9em; color: #2c5aa0;">
-                            <strong>Month 1:</strong> (Current DAU × 45% household filter) + Marketing targets<br>
-                            <strong>Month 2+:</strong> (Previous users × 88% retention) + New marketing acquisitions<br>
+                            <strong>Month 1:</strong> (Current DAU × <span id="household_display">45</span>% household filter) + Marketing targets<br>
+                            <strong>Month 2+:</strong> (Previous users × <span id="retention_display">88</span>% retention) + New marketing acquisitions<br>
                             <strong>Marketing Control:</strong> Direct monthly acquisition targets - all new users assumed CoComelon users
                         </div>
                     </div>
