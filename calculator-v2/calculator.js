@@ -455,13 +455,13 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
     let maxHostsNeeded = 0;
     
     for (let hour = 0; hour < 24; hour++) {
-        // Weekday calculations
+        // Weekday calculations - use research-backed hourly usage patterns
         const weekdayMultiplier = weekdayPattern[hour.toString()] || 0;
         const weekdayConcurrent = peakConcurrent * weekdayMultiplier;
-        let weekdayHosts = Math.ceil(weekdayConcurrent / sessionsPerHost);
-        
+        const weekdayHosts = Math.max(1, Math.ceil(weekdayConcurrent / sessionsPerHost));
+
+        // Track peak hours for reporting (>50% usage)
         if (weekdayMultiplier > 0.5) {
-            weekdayHosts = Math.floor(weekdayHosts * (1 + peakBuffer));
             hourlyCosts.peak_hours_info.weekday_peak_hours.push({
                 hour: hour,
                 time: formatTimeEST(hour),
@@ -469,25 +469,25 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
                 concurrent: Math.floor(weekdayConcurrent)
             });
         }
-        
+
         maxHostsNeeded = Math.max(maxHostsNeeded, weekdayHosts);
         const weekdayHourlyCost = weekdayHosts * hourlyRate;
         weekdayDailyCost += weekdayHourlyCost;
-        
+
         hourlyCosts.weekday_hours[hour] = {
             concurrent_users: Math.floor(weekdayConcurrent),
             hosts_needed: weekdayHosts,
             hourly_cost: weekdayHourlyCost,
             time_est: formatTimeEST(hour)
         };
-        
-        // Weekend calculations
+
+        // Weekend calculations - use research-backed hourly usage patterns
         const weekendMultiplier = weekendPattern[hour.toString()] || 0;
         const weekendConcurrent = peakConcurrent * weekendMultiplier;
-        let weekendHosts = Math.ceil(weekendConcurrent / sessionsPerHost);
-        
+        const weekendHosts = Math.max(1, Math.ceil(weekendConcurrent / sessionsPerHost));
+
+        // Track peak hours for reporting (>50% usage)
         if (weekendMultiplier > 0.5) {
-            weekendHosts = Math.floor(weekendHosts * (1 + peakBuffer));
             hourlyCosts.peak_hours_info.weekend_peak_hours.push({
                 hour: hour,
                 time: formatTimeEST(hour),
@@ -495,11 +495,11 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
                 concurrent: Math.floor(weekendConcurrent)
             });
         }
-        
+
         maxHostsNeeded = Math.max(maxHostsNeeded, weekendHosts);
         const weekendHourlyCost = weekendHosts * hourlyRate;
         weekendDailyCost += weekendHourlyCost;
-        
+
         hourlyCosts.weekend_hours[hour] = {
             concurrent_users: Math.floor(weekendConcurrent),
             hosts_needed: weekendHosts,
