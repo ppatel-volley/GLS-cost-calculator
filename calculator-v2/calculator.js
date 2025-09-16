@@ -61,6 +61,143 @@ const defaultConfig = {
             }
         }
     },
+
+    child_usage_model: {
+        enabled: true,
+        comment: "Child-focused usage modeling for ages 1.5-5 years, replacing generic 10% peak concurrent ratio",
+
+        behavioral_model: {
+            age_range: "1.5_to_5_years",
+            base_concurrent_ratio: 0.08, // Replaces generic 0.10 - children have different usage patterns
+            attention_span_minutes: 12, // Average attention span for target age group
+            session_frequency_per_day: 5, // Multiple short sessions throughout day
+            parental_supervision_factor: 0.75 // 75% of usage is parent-initiated/supervised
+        },
+
+        schedule_patterns: {
+            comment: "Time-based multipliers reflecting toddler/preschooler daily routines",
+
+            weekday_routine: {
+                "06:00-07:30": { multiplier: 0.02, reason: "wake_up_routine", description: "Waking up, getting dressed" },
+                "07:30-09:00": { multiplier: 0.15, reason: "breakfast_distraction", description: "Breakfast time, parents need distraction" },
+                "09:00-11:30": { multiplier: 0.08, reason: "preschool_hours", description: "Many children at daycare/preschool" },
+                "11:30-12:30": { multiplier: 0.20, reason: "pre_lunch_fussy_time", description: "Pre-lunch energy, need entertainment" },
+                "12:30-13:00": { multiplier: 0.12, reason: "lunch_distraction", description: "Lunch time entertainment" },
+                "13:00-15:00": { multiplier: 0.03, reason: "nap_time", description: "Critical nap period - very low usage" },
+                "15:00-17:00": { multiplier: 0.35, reason: "post_nap_peak", description: "Post-nap energy, first child peak hour" },
+                "17:00-18:30": { multiplier: 0.18, reason: "dinner_prep", description: "Parents preparing dinner" },
+                "18:30-20:00": { multiplier: 0.45, reason: "bedtime_routine", description: "Wind-down time, second child peak hour" },
+                "20:00-06:00": { multiplier: 0.01, reason: "sleep_time", description: "Children asleep" }
+            },
+
+            weekend_routine: {
+                "07:00-09:00": { multiplier: 0.08, reason: "lazy_morning", description: "Slower weekend morning routine" },
+                "09:00-12:00": { multiplier: 0.25, reason: "weekend_family_time", description: "Family activities, higher engagement" },
+                "12:00-13:00": { multiplier: 0.15, reason: "lunch_time", description: "Weekend lunch preparation" },
+                "13:00-15:00": { multiplier: 0.05, reason: "nap_time", description: "Weekend nap period - slightly higher than weekday" },
+                "15:00-18:00": { multiplier: 0.40, reason: "weekend_peak", description: "Main weekend usage period" },
+                "18:00-20:00": { multiplier: 0.30, reason: "dinner_wind_down", description: "Weekend dinner and bedtime prep" },
+                "20:00-07:00": { multiplier: 0.02, reason: "sleep_time", description: "Weekend sleep time" }
+            }
+        },
+
+        timezone_awareness: {
+            comment: "Child schedules are local-time based - nap at 1 PM local, bedtime at 7 PM local",
+
+            local_time_calculation: true,
+            timezone_distribution: {
+                eastern: { percentage: 0.47, utc_offset: -5 },   // EST/EDT
+                central: { percentage: 0.29, utc_offset: -6 },   // CST/CDT
+                mountain: { percentage: 0.07, utc_offset: -7 },  // MST/MDT
+                pacific: { percentage: 0.17, utc_offset: -8 }    // PST/PDT
+            },
+
+            peak_staggering: {
+                comment: "Child peaks occur at different UTC times due to timezone differences",
+                post_nap_peak: "15:00-17:00_local_time",      // 3-5 PM local becomes staggered UTC peaks
+                bedtime_peak: "18:30-20:00_local_time",       // 6:30-8 PM local becomes staggered UTC peaks
+                nap_time_low: "13:00-15:00_local_time"        // 1-3 PM local becomes staggered UTC lows
+            }
+        },
+
+        age_cohorts: {
+            comment: "Different behavioral patterns by age group within 1.5-5 year range",
+
+            "1.5-2.5_years": {
+                concurrent_ratio_adjustment: 0.6,    // 60% of base (shorter attention, more supervision)
+                session_duration_minutes: 8,         // Very short sessions
+                sessions_per_day: 4,                  // Fewer sessions
+                parental_supervision_required: 0.90, // 90% parent-initiated
+                attention_volatility: "high"         // More unpredictable usage
+            },
+
+            "2.5-3.5_years": {
+                concurrent_ratio_adjustment: 1.0,    // 100% of base (baseline group)
+                session_duration_minutes: 12,        // Moderate sessions
+                sessions_per_day: 5,                  // Average sessions
+                parental_supervision_required: 0.75, // 75% parent-initiated
+                attention_volatility: "medium"       // More predictable patterns emerging
+            },
+
+            "3.5-5_years": {
+                concurrent_ratio_adjustment: 1.5,    // 150% of base (longer attention, more independent)
+                session_duration_minutes: 18,        // Longer sessions
+                sessions_per_day: 6,                  // More frequent usage
+                parental_supervision_required: 0.60, // 60% parent-initiated
+                attention_volatility: "low"          // Most predictable usage patterns
+            }
+        },
+
+        parental_stress_multipliers: {
+            comment: "Usage spikes during times when parents need distraction tools",
+
+            high_stress_periods: {
+                dinner_prep: { multiplier: 2.0, time_windows: ["17:00-18:30"] },
+                phone_calls: { multiplier: 1.7, distributed: true },
+                cleaning: { multiplier: 1.4, distributed: true },
+                work_calls: { multiplier: 1.8, time_windows: ["09:00-17:00"] }
+            },
+
+            low_stress_periods: {
+                parent_working: { multiplier: 0.6, time_windows: ["09:00-17:00"] },
+                nap_enforcement: { multiplier: 0.1, time_windows: ["13:00-15:00"] },
+                bedtime_enforcement: { multiplier: 0.05, time_windows: ["20:00-06:00"] }
+            }
+        },
+
+        // Built-in population assumptions (no user configuration needed)
+        population_model: {
+            comment: "Research-backed population-level assumptions for children ages 1.5-5",
+
+            age_distribution: {
+                "1.5-2.5_years": 0.30,    // 30% toddlers (higher supervision, shorter sessions)
+                "2.5-3.5_years": 0.40,    // 40% preschoolers (baseline behavioral patterns)
+                "3.5-5_years": 0.30       // 30% pre-K (more independent, longer sessions)
+            },
+
+            household_schedule_distribution: {
+                daycare_routine: 0.40,     // 40% attend daycare/preschool
+                stay_at_home: 0.35,        // 35% stay at home with parents
+                mixed_schedule: 0.25       // 25% have mixed/flexible schedules
+            },
+
+            optimal_settings: {
+                base_concurrent_ratio: 0.08,           // 8% peak concurrent for child population
+                average_attention_span_minutes: 12,    // Population-weighted average
+                default_nap_window: "13:00-15:00",    // Standard US toddler nap time
+                primary_schedule_type: "preschooler_routine",  // Most representative schedule
+                session_duration_cap_minutes: 15       // Max session length based on attention research
+            },
+
+            behavioral_weighting: {
+                comment: "How different age groups contribute to overall usage patterns",
+                young_toddlers_weight: 0.6,   // 1.5-2.5 years: 60% of baseline (more supervision)
+                preschoolers_weight: 1.0,     // 2.5-3.5 years: 100% baseline (reference group)
+                pre_k_weight: 1.5             // 3.5-5 years: 150% baseline (more independent)
+            }
+        }
+    },
+
     infrastructure_specs: {
         instance_types: {
             gen4n_mid: {
@@ -263,7 +400,28 @@ function gatherConfiguration() {
     // Update basic values
     config.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
     config.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
-    config.real_data_baseline.peak_concurrent_ratio = parseFloat(document.getElementById('peak_concurrent_ratio').value);
+
+    // Update child usage model configuration
+    const childModelEnabled = document.getElementById('child_model_enabled').value === 'true';
+    config.child_usage_model.enabled = childModelEnabled;
+
+    if (childModelEnabled) {
+        // Apply hardcoded population-level child behavioral patterns automatically
+        const populationModel = config.child_usage_model.population_model.optimal_settings;
+
+        config.child_usage_model.behavioral_model.base_concurrent_ratio = populationModel.base_concurrent_ratio;
+        config.child_usage_model.behavioral_model.attention_span_minutes = populationModel.average_attention_span_minutes;
+        config.child_usage_model.behavioral_model.age_range = "2.5-3.5"; // Use balanced reference group
+        config.child_usage_model.behavioral_model.schedule_type = populationModel.primary_schedule_type;
+        config.child_usage_model.behavioral_model.nap_time_window = populationModel.default_nap_window;
+
+        // Set generic fallback ratio (not used when child model is enabled)
+        config.real_data_baseline.peak_concurrent_ratio = 0.10;
+    } else {
+        // Use generic model with 10% concurrent ratio
+        config.real_data_baseline.peak_concurrent_ratio = 0.10;
+    }
+
     config.growth_assumptions.monthly_growth_rate = parseFloat(document.getElementById('monthly_growth_rate').value);
     config.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
     
@@ -325,6 +483,74 @@ function saveConfigToFile(config) {
     }
 }
 
+
+function autoSaveConfig() {
+    try {
+        // Lightweight auto-save for immediate settings changes
+        const currentConfig = JSON.parse(JSON.stringify(defaultConfig)); // Start with current config
+
+        // Update basic values that might have changed
+        if (document.getElementById('current_dau')) {
+            currentConfig.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
+        }
+        if (document.getElementById('household_percentage')) {
+            currentConfig.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
+        }
+        if (document.getElementById('user_retention_rate')) {
+            currentConfig.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
+        }
+
+        // Update child model settings - simplified to just read toggle
+        const childModelEnabled = document.getElementById('child_model_enabled') &&
+                                 document.getElementById('child_model_enabled').value === 'true';
+
+        currentConfig.child_usage_model.enabled = childModelEnabled;
+
+        if (childModelEnabled) {
+            // Apply hardcoded population-level settings automatically (no user configuration)
+            const populationModel = currentConfig.child_usage_model.population_model.optimal_settings;
+
+            currentConfig.child_usage_model.behavioral_model.base_concurrent_ratio = populationModel.base_concurrent_ratio;
+            currentConfig.child_usage_model.behavioral_model.attention_span_minutes = populationModel.average_attention_span_minutes;
+            currentConfig.child_usage_model.behavioral_model.age_range = "2.5-3.5"; // Balanced reference group
+            currentConfig.child_usage_model.behavioral_model.schedule_type = populationModel.primary_schedule_type;
+            currentConfig.child_usage_model.behavioral_model.nap_time_window = populationModel.default_nap_window;
+        } else {
+            // Generic model uses 10% concurrent ratio
+            currentConfig.real_data_baseline.peak_concurrent_ratio = 0.10;
+        }
+
+        // Save to localStorage
+        localStorage.setItem('cocomelon-calculator-config', JSON.stringify(currentConfig));
+
+        // Update in-memory config
+        Object.assign(defaultConfig, currentConfig);
+
+        // Update dynamic display elements
+        updateDynamicDisplays(currentConfig);
+
+        console.log('💾 Settings auto-saved');
+
+        return true;
+    } catch (error) {
+        console.warn('Auto-save failed:', error.message);
+        return false;
+    }
+}
+
+function updateDynamicDisplays(config) {
+    // Update household percentage display
+    const householdDisplay = document.getElementById('household_display');
+    if (householdDisplay) {
+        householdDisplay.textContent = Math.round(config.real_data_baseline.household_percentage * 100);
+    }
+
+    // Update retention display
+    const retentionDisplay = document.getElementById('retention_display');
+    if (retentionDisplay) {
+        retentionDisplay.textContent = Math.round(config.marketing_acquisition.retention_curve.month_1 * 100);
+    }
+}
 
 function loadSavedConfig() {
     try {
@@ -403,8 +629,15 @@ function calculateMonthlyUsers(config) {
         const seasonalMultiplier = seasonalMultipliers[seasonalMonth];
         const adjustedUsers = monthUsers * seasonalMultiplier;
         
-        // Calculate concurrent users
-        const peakConcurrent = adjustedUsers * baseline.peak_concurrent_ratio;
+        // Calculate concurrent users using child model if enabled
+        let peakConcurrent;
+        if (config.child_usage_model && config.child_usage_model.enabled) {
+            // Use child model base concurrent ratio
+            peakConcurrent = adjustedUsers * config.child_usage_model.behavioral_model.base_concurrent_ratio;
+        } else {
+            // Use generic model
+            peakConcurrent = adjustedUsers * baseline.peak_concurrent_ratio;
+        }
         
         monthlyData[month] = {
             total_users: Math.floor(adjustedUsers),
@@ -445,20 +678,63 @@ function getOptimalInstanceType(month, config) {
     return bestType[0];
 }
 
+function calculateChildUsageMultiplier(hour, isWeekend, config) {
+    // Convert hour to time string for pattern matching
+    const childModel = config.child_usage_model;
+    const patterns = childModel.schedule_patterns;
+    const routineType = isWeekend ? 'weekend_routine' : 'weekday_routine';
+    const routine = patterns[routineType];
+
+    // Find which time window this hour falls into
+    for (const [timeWindow, patternData] of Object.entries(routine)) {
+        const [startTime, endTime] = timeWindow.split('-');
+        const [startHour] = startTime.split(':').map(Number);
+        const [endHour] = endTime.split(':').map(Number);
+
+        // Handle overnight periods (e.g., 20:00-06:00)
+        if (startHour > endHour) {
+            if (hour >= startHour || hour < endHour) {
+                return patternData.multiplier;
+            }
+        } else {
+            if (hour >= startHour && hour < endHour) {
+                return patternData.multiplier;
+            }
+        }
+    }
+
+    // Default fallback if no pattern matches
+    return 0.01;
+}
+
 function calculateHourlyCosts(month, monthlyUsers, config) {
     const totalUsers = monthlyUsers.total_users;
     const peakConcurrent = monthlyUsers.peak_concurrent;
-    
+
     // Get optimal instance type
     const instanceType = getOptimalInstanceType(month, config);
     const instanceSpecs = config.infrastructure_specs.instance_types[instanceType];
-    
+
     const sessionsPerHost = instanceSpecs.sessions_per_host;
     const hourlyRate = instanceSpecs.hourly_rate;
-    
-    // Get usage patterns
-    const weekdayPattern = config.time_zone_patterns.weekday_pattern.hours;
-    const weekendPattern = config.time_zone_patterns.weekend_pattern.hours;
+
+    // Get usage patterns - use child model if enabled, otherwise generic patterns
+    let weekdayPattern, weekendPattern;
+
+    if (config.child_usage_model && config.child_usage_model.enabled) {
+        // Create child usage patterns by calculating multipliers for each hour
+        weekdayPattern = {};
+        weekendPattern = {};
+
+        for (let hour = 0; hour < 24; hour++) {
+            weekdayPattern[hour.toString()] = calculateChildUsageMultiplier(hour, false, config);
+            weekendPattern[hour.toString()] = calculateChildUsageMultiplier(hour, true, config);
+        }
+    } else {
+        // Use generic patterns
+        weekdayPattern = config.time_zone_patterns.weekday_pattern.hours;
+        weekendPattern = config.time_zone_patterns.weekend_pattern.hours;
+    }
     
     // Calculate capacity planning
     const capacityConfig = config.infrastructure_specs.capacity_planning;
@@ -714,7 +990,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                          • New Marketing Users: <strong>${users.marketing_details.new_users.toLocaleString()}</strong> (all CoComelon users)<br>
                          • Month ${month} Total: <strong>${users.total_users.toLocaleString()}</strong><br>`
                     }
-                    • Peak Concurrent (10%): <strong>${users.peak_concurrent.toLocaleString()} users online simultaneously</strong><br>
+                    • Peak Concurrent (${config.child_usage_model.enabled ? '8%' : '10%'}): <strong>${users.peak_concurrent.toLocaleString()} users online simultaneously</strong><br>
                     • Seasonal Adjustment: <strong>${users.seasonal_multiplier.toFixed(2)}x</strong>
                 </div>
             </div>

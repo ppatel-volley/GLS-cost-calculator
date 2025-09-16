@@ -449,11 +449,47 @@
             <!-- Configuration Panel -->
             <div class="config-panel">
                 <div class="section">
+                    <h3>🧸 Child Usage Model (Ages 1.5-5)</h3>
+                    <div class="section-description">
+                        Configure child-specific usage patterns for toddlers and preschoolers. This replaces generic adult usage models with behavior patterns specific to young children's schedules, attention spans, and parental supervision.
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Usage Model</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Choose between specialized child patterns (ages 1.5-5) with automatic behavioral modeling, or generic patterns for all ages. Child model includes nap times, bedtime routines, attention spans, timezone-aware scheduling, and parental supervision patterns.</span>
+                            </div>
+                        </div>
+                        <select id="child_model_enabled">
+                            <option value="true">🧸 Child Model (Ages 1.5-5) - 8% Peak Concurrent</option>
+                            <option value="false">👥 Generic Model (All Ages) - 10% Peak Concurrent</option>
+                        </select>
+                    </div>
+
+                    <div id="child_model_explanation" style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #4a90e2;">
+                        <h4 style="margin: 0 0 10px 0; color: #2c5aa0; font-size: 0.95rem;">🧸 Child Model Includes Automatically:</h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; font-size: 0.85rem;">
+                            <div><strong>📅 Daily Schedules:</strong> Weekday vs weekend patterns, nap times (1-3 PM), bedtime routines (6:30-8 PM)</div>
+                            <div><strong>🌍 Timezone Awareness:</strong> Local time calculations across US timezones with staggered peak distribution</div>
+                            <div><strong>👶 Age Demographics:</strong> Mixed population (30% toddlers, 40% preschoolers, 30% pre-K)</div>
+                            <div><strong>👨‍👩‍👧 Supervision Patterns:</strong> Parental supervision ratios, distraction-driven usage spikes</div>
+                            <div><strong>⏱️ Attention Spans:</strong> Age-appropriate session durations (8-18 min), attention volatility modeling</div>
+                            <div><strong>🏠 Schedule Types:</strong> Daycare (40%), stay-at-home (35%), mixed schedules (25%)</div>
+                        </div>
+                        <div style="margin-top: 12px; padding: 10px; background: #e8f4fd; border-radius: 6px; font-size: 0.8rem; color: #555;">
+                            <strong>✨ Population-Level Modeling:</strong> All behavioral patterns are applied automatically based on research-backed assumptions for children's streaming habits. No individual configuration needed - the system models realistic population-wide usage patterns.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
                     <h3>👥 User Base & Growth</h3>
                     <div class="section-description">
                         Configure your current user base and growth projections. These drive how much infrastructure capacity you'll need each month.
                     </div>
-                    
+
                     <div class="form-group">
                         <div class="label-with-tooltip">
                             <label>Current Daily Active Users (DAU)</label>
@@ -465,12 +501,12 @@
                         <input type="number" id="current_dau" value="4140" min="0">
                     </div>
 
-                    <div class="form-group">
+                    <div class="form-group" id="generic_concurrent_ratio" style="display: none;">
                         <div class="label-with-tooltip">
-                            <label>Peak Concurrent Ratio</label>
+                            <label>Peak Concurrent Ratio (Generic Model)</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">?</span>
-                                <span class="tooltiptext">What percentage of your daily users are online at the same time during peak hours. For kids content, typically 8-12% due to after-school viewing patterns.</span>
+                                <span class="tooltiptext">What percentage of your daily users are online at the same time during peak hours. Generic model uses fixed ratio regardless of time of day.</span>
                             </div>
                         </div>
                         <input type="number" id="peak_concurrent_ratio" value="0.10" min="0" max="1" step="0.01">
@@ -693,6 +729,29 @@
         </div>
     </div>
 
+    <script>
+        // Handle child model toggle
+        function toggleChildModel() {
+            // Auto-save settings when child model toggle changes
+            if (typeof autoSaveConfig === 'function') {
+                autoSaveConfig();
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set up event listener for child model toggle
+            const childModelSelect = document.getElementById('child_model_enabled');
+            if (childModelSelect) {
+                childModelSelect.addEventListener('change', toggleChildModel);
+
+                // Auto-save initial settings
+                if (typeof autoSaveConfig === 'function') {
+                    autoSaveConfig();
+                }
+            }
+        });
+    </script>
     <script src="calculator.js"></script>
 </body>
 </html>
