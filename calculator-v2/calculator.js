@@ -960,10 +960,20 @@ function displayResults(results) {
         </div>
 
         <div class="chart-container">
+            <h4>📊 12-Month Trends Overview</h4>
+            ${generateTrendsChart(results)}
+        </div>
+
+        <div class="chart-container">
+            <h4>💰 12-Month Revenue Analysis ($12.99/user/month)</h4>
+            ${generateRevenueAnalysis(results)}
+        </div>
+
+        <div class="chart-container">
             <h4>🧮 Calculation Methodology (Month ${currentMonth} Example)</h4>
             ${generateCalculationBreakdown(monthData, currentMonth, results)}
         </div>
-        
+
         <div class="chart-container">
             <h4>📈 12-Month Infrastructure Progression</h4>
             <div class="results-grid">
@@ -1187,6 +1197,212 @@ function generateYearOverview(results) {
         }
     }
     return overview;
+}
+
+function generateTrendsChart(results) {
+    const chartWidth = 800;
+    const chartHeight = 400;
+    const margin = { top: 20, right: 80, bottom: 60, left: 80 };
+    const plotWidth = chartWidth - margin.left - margin.right;
+    const plotHeight = chartHeight - margin.top - margin.bottom;
+
+    // Extract data for all 12 months
+    const months = [];
+    const users = [];
+    const costs = [];
+    const costPerUser = [];
+
+    for (let month = 1; month <= 12; month++) {
+        const data = results[month];
+        if (data) {
+            months.push(month);
+            users.push(data.users.total_users);
+            costs.push(data.costs.monthly_totals.total_monthly_cost);
+            costPerUser.push(data.costs.monthly_totals.cost_per_user);
+        }
+    }
+
+    // Find data ranges for scaling
+    const maxUsers = Math.max(...users);
+    const maxCost = Math.max(...costs);
+    const maxCostPerUser = Math.max(...costPerUser);
+    const minCostPerUser = Math.min(...costPerUser);
+
+    // Scale functions
+    const scaleX = (month) => margin.left + ((month - 1) / 11) * plotWidth;
+    const scaleYUsers = (value) => margin.top + plotHeight - (value / maxUsers) * plotHeight;
+    const scaleYCost = (value) => margin.top + plotHeight - (value / maxCost) * plotHeight;
+    const scaleYCostPerUser = (value) => margin.top + plotHeight - ((value - minCostPerUser) / (maxCostPerUser - minCostPerUser)) * plotHeight;
+
+    // Generate SVG paths
+    const usersPath = months.map((month, i) =>
+        `${i === 0 ? 'M' : 'L'} ${scaleX(month)} ${scaleYUsers(users[i])}`
+    ).join(' ');
+
+    const costsPath = months.map((month, i) =>
+        `${i === 0 ? 'M' : 'L'} ${scaleX(month)} ${scaleYCost(costs[i])}`
+    ).join(' ');
+
+    const costPerUserPath = months.map((month, i) =>
+        `${i === 0 ? 'M' : 'L'} ${scaleX(month)} ${scaleYCostPerUser(costPerUser[i])}`
+    ).join(' ');
+
+    // Generate grid lines and labels
+    let gridLines = '';
+    let xLabels = '';
+    let yLabelsLeft = '';
+    let yLabelsRight = '';
+
+    // X-axis grid and labels
+    for (let month = 1; month <= 12; month++) {
+        const x = scaleX(month);
+        gridLines += `<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${chartHeight - margin.bottom}" stroke="#e2e8f0" stroke-width="1" opacity="0.5"/>`;
+        xLabels += `<text x="${x}" y="${chartHeight - margin.bottom + 20}" text-anchor="middle" font-size="12" fill="#64748b">M${month}</text>`;
+    }
+
+    // Y-axis grid and labels (Users - left side)
+    for (let i = 0; i <= 5; i++) {
+        const value = (maxUsers / 5) * i;
+        const y = scaleYUsers(value);
+        if (i > 0) {
+            gridLines += `<line x1="${margin.left}" y1="${y}" x2="${chartWidth - margin.right}" y2="${y}" stroke="#e2e8f0" stroke-width="1" opacity="0.3"/>`;
+        }
+        yLabelsLeft += `<text x="${margin.left - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="#64748b">${Math.round(value).toLocaleString()}</text>`;
+    }
+
+    // Y-axis grid and labels (Cost - right side)
+    for (let i = 0; i <= 5; i++) {
+        const value = (maxCost / 5) * i;
+        const y = scaleYCost(value);
+        yLabelsRight += `<text x="${chartWidth - margin.right + 10}" y="${y + 4}" text-anchor="start" font-size="11" fill="#64748b">$${Math.round(value / 1000)}K</text>`;
+    }
+
+    // Data points with tooltips
+    let dataPoints = '';
+    months.forEach((month, i) => {
+        const x = scaleX(month);
+        const yUsers = scaleYUsers(users[i]);
+        const yCost = scaleYCost(costs[i]);
+        const yCostPerUser = scaleYCostPerUser(costPerUser[i]);
+
+        // User points (blue circles) with tooltip
+        dataPoints += `
+            <circle cx="${x}" cy="${yUsers}" r="4" fill="#3b82f6" stroke="white" stroke-width="2"
+                    style="cursor: pointer; transition: all 0.2s ease;"
+                    onmouseover="this.setAttribute('r', '6'); showTooltip(event, 'Month ${month}: ${users[i].toLocaleString()} Users')"
+                    onmouseout="this.setAttribute('r', '4'); hideTooltip()"/>`;
+
+        // Cost points (green squares) with tooltip
+        dataPoints += `
+            <rect x="${x-3}" y="${yCost-3}" width="6" height="6" fill="#10b981" stroke="white" stroke-width="2"
+                  style="cursor: pointer; transition: all 0.2s ease;"
+                  onmouseover="this.setAttribute('width', '8'); this.setAttribute('height', '8'); this.setAttribute('x', '${x-4}'); this.setAttribute('y', '${yCost-4}'); showTooltip(event, 'Month ${month}: $${Math.round(costs[i]).toLocaleString()} Monthly Cost')"
+                  onmouseout="this.setAttribute('width', '6'); this.setAttribute('height', '6'); this.setAttribute('x', '${x-3}'); this.setAttribute('y', '${yCost-3}'); hideTooltip()"/>`;
+
+        // Cost per user points (orange triangles) with tooltip
+        dataPoints += `
+            <polygon points="${x},${yCostPerUser-4} ${x-4},${yCostPerUser+3} ${x+4},${yCostPerUser+3}" fill="#f59e0b" stroke="white" stroke-width="2"
+                     style="cursor: pointer; transition: all 0.2s ease;"
+                     onmouseover="this.setAttribute('transform', 'scale(1.3) translate(${(x-x*1.3)/1.3}, ${(yCostPerUser-yCostPerUser*1.3)/1.3})'); showTooltip(event, 'Month ${month}: $${costPerUser[i].toFixed(2)} per User')"
+                     onmouseout="this.setAttribute('transform', 'scale(1)'); hideTooltip()"/>`;
+    });
+
+    return `
+        <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: center; margin-bottom: 15px;">
+                <div style="display: flex; gap: 30px; font-size: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 16px; height: 16px; background: #3b82f6; border-radius: 50%;"></div>
+                        <span>Total Users</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 16px; height: 16px; background: #10b981;"></div>
+                        <span>Monthly Cost</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #f59e0b;"></div>
+                        <span>Cost per User</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: center;">
+                <svg width="${chartWidth}" height="${chartHeight}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <!-- Grid lines -->
+                    ${gridLines}
+
+                    <!-- Chart axes -->
+                    <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${chartHeight - margin.bottom}" stroke="#64748b" stroke-width="2"/>
+                    <line x1="${margin.left}" y1="${chartHeight - margin.bottom}" x2="${chartWidth - margin.right}" y2="${chartHeight - margin.bottom}" stroke="#64748b" stroke-width="2"/>
+                    <line x1="${chartWidth - margin.right}" y1="${margin.top}" x2="${chartWidth - margin.right}" y2="${chartHeight - margin.bottom}" stroke="#64748b" stroke-width="2"/>
+
+                    <!-- Chart lines -->
+                    <path d="${usersPath}" stroke="#3b82f6" stroke-width="3" fill="none" opacity="0.8"/>
+                    <path d="${costsPath}" stroke="#10b981" stroke-width="3" fill="none" opacity="0.8"/>
+                    <path d="${costPerUserPath}" stroke="#f59e0b" stroke-width="3" fill="none" opacity="0.8"/>
+
+                    <!-- Data points -->
+                    ${dataPoints}
+
+                    <!-- Labels -->
+                    ${xLabels}
+                    ${yLabelsLeft}
+                    ${yLabelsRight}
+
+                    <!-- Axis titles -->
+                    <text x="${margin.left - 50}" y="${chartHeight / 2}" text-anchor="middle" transform="rotate(-90, ${margin.left - 50}, ${chartHeight / 2})" font-size="13" font-weight="bold" fill="#374151">Total Users</text>
+                    <text x="${chartWidth - margin.right + 50}" y="${chartHeight / 2}" text-anchor="middle" transform="rotate(90, ${chartWidth - margin.right + 50}, ${chartHeight / 2})" font-size="13" font-weight="bold" fill="#374151">Monthly Cost ($)</text>
+                    <text x="${chartWidth / 2}" y="${chartHeight - 10}" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">Month</text>
+                </svg>
+            </div>
+
+            <div style="margin-top: 15px; background: #f8f9fa; padding: 15px; border-radius: 6px; font-size: 13px; color: #374151;">
+                <strong>📈 Key Trends:</strong><br>
+                • <strong>User Growth:</strong> ${users[0].toLocaleString()} → ${users[11].toLocaleString()} users (${((users[11]/users[0] - 1) * 100).toFixed(0)}% growth)<br>
+                • <strong>Cost Scaling:</strong> $${Math.round(costs[0]).toLocaleString()} → $${Math.round(costs[11]).toLocaleString()} monthly (${((costs[11]/costs[0] - 1) * 100).toFixed(0)}% increase)<br>
+                • <strong>Efficiency Gain:</strong> $${costPerUser[0].toFixed(2)} → $${costPerUser[11].toFixed(2)} per user (${costPerUser[11] < costPerUser[0] ? 'improved' : 'reduced'} by ${Math.abs(((costPerUser[11]/costPerUser[0] - 1) * 100)).toFixed(0)}%)<br>
+                • <strong>Optimal Months:</strong> Months ${months.filter((_, i) => costPerUser[i] >= 0.90 && costPerUser[i] <= 1.10).join(', ')} achieve target $0.90-1.10 per user range
+            </div>
+        </div>
+    `;
+}
+
+// Tooltip functions for chart interactivity
+function showTooltip(event, text) {
+    // Remove existing tooltip
+    hideTooltip();
+
+    // Create tooltip element
+    const tooltip = document.createElement('div');
+    tooltip.id = 'chart-tooltip';
+    tooltip.innerHTML = text;
+    tooltip.style.cssText = `
+        position: fixed;
+        background: #333;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        z-index: 10000;
+        pointer-events: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        white-space: nowrap;
+    `;
+
+    document.body.appendChild(tooltip);
+
+    // Position tooltip near cursor
+    const rect = tooltip.getBoundingClientRect();
+    tooltip.style.left = (event.clientX - rect.width / 2) + 'px';
+    tooltip.style.top = (event.clientY - rect.height - 10) + 'px';
+}
+
+function hideTooltip() {
+    const tooltip = document.getElementById('chart-tooltip');
+    if (tooltip) {
+        tooltip.remove();
+    }
 }
 
 function generateRevenueAnalysis(results) {
