@@ -917,6 +917,30 @@ function displayResults(results) {
                     <span class="metric-value">${((monthData.costs.monthly_totals.infrastructure_cost / monthData.costs.monthly_totals.total_monthly_cost) * 100).toFixed(1)}%</span>
                 </div>
             </div>
+
+            <div class="result-card revenue-analysis">
+                <h4>💰 Revenue vs Infrastructure Cost</h4>
+                <div class="metric">
+                    <span class="metric-label">Monthly Revenue per User</span>
+                    <span class="metric-value">$12.99</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Infrastructure Cost per User</span>
+                    <span class="metric-value">$${monthData.costs.monthly_totals.cost_per_user.toFixed(2)}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Infrastructure % of Revenue</span>
+                    <span class="metric-value">${((monthData.costs.monthly_totals.cost_per_user / 12.99) * 100).toFixed(1)}%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Gross Margin per User</span>
+                    <span class="metric-value">$${(12.99 - monthData.costs.monthly_totals.cost_per_user).toFixed(2)}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Total Monthly Revenue</span>
+                    <span class="metric-value">$${(monthData.users.total_users * 12.99).toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
+                </div>
+            </div>
         </div>
 
         <div class="cost-highlight">
@@ -945,6 +969,11 @@ function displayResults(results) {
             <div class="results-grid">
                 ${generateYearOverview(results)}
             </div>
+        </div>
+
+        <div class="chart-container">
+            <h4>💰 12-Month Revenue Analysis ($12.99/user/month)</h4>
+            ${generateRevenueAnalysis(results)}
         </div>
     `;
     
@@ -1049,6 +1078,33 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                 <strong>Weekend Example:</strong> At 1:00 PM, ${users.peak_concurrent.toLocaleString()} peak × 0.75 multiplier ÷ ${costs.sessions_per_host} streams = ${Math.ceil(users.peak_concurrent * 0.75 / costs.sessions_per_host)} servers needed
             </div>
 
+            <div style="background: #fff3cd; padding: 15px; border-radius: 6px; border-left: 4px solid #ffc107; margin-top: 15px;">
+                <strong>🎯 Why Cost Per User Approaches $1.00 (gen4n_mid Analysis)</strong><br><br>
+
+                <strong>Month ${month} Context:</strong><br>
+                • Current cost per user: <strong>$${costs.monthly_totals.cost_per_user.toFixed(2)}</strong><br>
+                • User base: <strong>${users.total_users.toLocaleString()}</strong> (${month === 1 ? 'initial launch scale' : month <= 3 ? 'early growth phase' : month <= 6 ? 'scaling phase' : 'mature scale'})<br>
+                • Peak concurrent: <strong>${users.peak_concurrent.toLocaleString()}</strong> streams<br><br>
+
+                <strong>Target $1.00 Economics (Achieved ~Month 4-6):</strong><br>
+                • <strong>Optimal Scale:</strong> 4,000-8,000 users → 320-640 peak concurrent streams<br>
+                • <strong>Server Efficiency:</strong> gen4n_mid handles 6 streams/server at $0.77/hour<br>
+                • <strong>Usage Patterns:</strong> Child-focused model (8% concurrent) with realistic daily routines<br>
+                • <strong>Key Hours:</strong> Bedtime peak (6:30-8 PM) and post-nap peak (3-5 PM)<br>
+                • <strong>Scaling Economics:</strong> Fixed storage cost ($3/month) amortized across growing user base<br><br>
+
+                <strong>Cost Evolution by Growth Phase:</strong><br>
+                • <strong>Month 1-3:</strong> $1.15-1.30/user (small scale, high per-user overhead)<br>
+                • <strong>Month 4-8:</strong> $0.90-1.00/user (optimal efficiency sweet spot)<br>
+                • <strong>Month 9-12:</strong> $0.90-0.95/user (mature scale with seasonal variations)<br><br>
+
+                <strong>Why gen4n_mid Achieves $1.00:</strong><br>
+                • <strong>Right-sized capacity:</strong> 6 streams/server matches child usage peaks<br>
+                • <strong>Cost-efficient hardware:</strong> NVIDIA T4 at $0.77/hour balances performance vs. cost<br>
+                • <strong>Child behavioral model:</strong> 8% concurrent ratio reflects realistic toddler attention patterns<br>
+                • <strong>Predictable daily patterns:</strong> Nap times (low usage) offset by bedtime peaks
+            </div>
+
             <div style="background: #f0f8ff; padding: 15px; border-radius: 6px; border-left: 4px solid #4a90e2; margin-top: 15px;">
                 <strong>🔍 Daily Calculation Verification</strong><br><br>
                 <strong>Weekday (School Day Pattern):</strong><br>
@@ -1102,7 +1158,7 @@ function generateYearOverview(results) {
             const isCurrentMonth = month === currentMonth;
             const cardClass = 'result-card';
             const style = isCurrentMonth ? 'border-left: 4px solid #ff6b6b;' : 'border-left: 4px solid #ddd; opacity: 0.7;';
-            
+
             overview += `
                 <div class="${cardClass}" style="${style}" onclick="selectMonth(${month})" title="Click to view Month ${month} details">
                     <h5 style="cursor: pointer;">Month ${month}</h5>
@@ -1131,6 +1187,130 @@ function generateYearOverview(results) {
         }
     }
     return overview;
+}
+
+function generateRevenueAnalysis(results) {
+    const MONTHLY_REVENUE_PER_USER = 12.99;
+
+    let analysisTable = `
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #28a745; margin-bottom: 20px;">
+            <table style="width: 100%; border-collapse: collapse; font-family: monospace; font-size: 12px;">
+                <thead>
+                    <tr style="background: #e9ecef; border-bottom: 2px solid #28a745;">
+                        <th style="padding: 8px; text-align: left; border-right: 1px solid #ddd;">Month</th>
+                        <th style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">Users</th>
+                        <th style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">Revenue</th>
+                        <th style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">Infra Cost</th>
+                        <th style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">Cost/User</th>
+                        <th style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">% of Revenue</th>
+                        <th style="padding: 8px; text-align: right;">Gross Margin</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    let totalRevenue = 0;
+    let totalInfraCost = 0;
+    let totalUsers = 0;
+
+    for (let month = 1; month <= 12; month++) {
+        const data = results[month];
+        if (data) {
+            const users = data.users.total_users;
+            const monthlyRevenue = users * MONTHLY_REVENUE_PER_USER;
+            const infraCost = data.costs.monthly_totals.total_monthly_cost;
+            const costPerUser = data.costs.monthly_totals.cost_per_user;
+            const infraPercentage = (costPerUser / MONTHLY_REVENUE_PER_USER) * 100;
+            const grossMargin = monthlyRevenue - infraCost;
+            const grossMarginPercent = (grossMargin / monthlyRevenue) * 100;
+
+            totalRevenue += monthlyRevenue;
+            totalInfraCost += infraCost;
+            totalUsers += users;
+
+            // Color coding based on infrastructure percentage
+            let rowStyle = '';
+            if (infraPercentage <= 8) {
+                rowStyle = 'background: #d4edda;'; // Green - excellent margins
+            } else if (infraPercentage <= 15) {
+                rowStyle = 'background: #fff3cd;'; // Yellow - good margins
+            } else {
+                rowStyle = 'background: #f8d7da;'; // Red - concerning margins
+            }
+
+            analysisTable += `
+                <tr style="${rowStyle}">
+                    <td style="padding: 8px; border-right: 1px solid #ddd; font-weight: bold;">${month}</td>
+                    <td style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">${users.toLocaleString()}</td>
+                    <td style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">$${monthlyRevenue.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+                    <td style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">$${infraCost.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+                    <td style="padding: 8px; text-align: right; border-right: 1px solid #ddd;">$${costPerUser.toFixed(2)}</td>
+                    <td style="padding: 8px; text-align: right; border-right: 1px solid #ddd; font-weight: bold;">${infraPercentage.toFixed(1)}%</td>
+                    <td style="padding: 8px; text-align: right; font-weight: bold;">$${grossMargin.toLocaleString('en-US', {maximumFractionDigits: 0})} (${grossMarginPercent.toFixed(1)}%)</td>
+                </tr>
+            `;
+        }
+    }
+
+    // Add totals row
+    const avgCostPerUser = totalInfraCost / totalUsers;
+    const totalInfraPercentage = (avgCostPerUser / MONTHLY_REVENUE_PER_USER) * 100;
+    const totalGrossMargin = totalRevenue - totalInfraCost;
+    const totalGrossMarginPercent = (totalGrossMargin / totalRevenue) * 100;
+
+    analysisTable += `
+                </tbody>
+                <tfoot>
+                    <tr style="background: #343a40; color: white; font-weight: bold; border-top: 3px solid #28a745;">
+                        <td style="padding: 12px; border-right: 1px solid #666;">YEAR TOTAL</td>
+                        <td style="padding: 12px; text-align: right; border-right: 1px solid #666;">${(totalUsers / 12).toLocaleString('en-US', {maximumFractionDigits: 0})} avg</td>
+                        <td style="padding: 12px; text-align: right; border-right: 1px solid #666;">$${totalRevenue.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+                        <td style="padding: 12px; text-align: right; border-right: 1px solid #666;">$${totalInfraCost.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+                        <td style="padding: 12px; text-align: right; border-right: 1px solid #666;">$${avgCostPerUser.toFixed(2)}</td>
+                        <td style="padding: 12px; text-align: right; border-right: 1px solid #666;">${totalInfraPercentage.toFixed(1)}%</td>
+                        <td style="padding: 12px; text-align: right;">$${totalGrossMargin.toLocaleString('en-US', {maximumFractionDigits: 0})} (${totalGrossMarginPercent.toFixed(1)}%)</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="results-grid" style="margin-top: 20px;">
+            <div class="result-card" style="border-left: 4px solid #28a745;">
+                <h5>📊 Key Revenue Insights</h5>
+                <div class="metric">
+                    <span class="metric-label">Average Infrastructure % of Revenue</span>
+                    <span class="metric-value">${totalInfraPercentage.toFixed(1)}%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Year 1 Gross Margin</span>
+                    <span class="metric-value">${totalGrossMarginPercent.toFixed(1)}%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Total Revenue (Year 1)</span>
+                    <span class="metric-value">$${totalRevenue.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Total Infrastructure Cost</span>
+                    <span class="metric-value">$${totalInfraCost.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
+                </div>
+            </div>
+
+            <div class="result-card" style="border-left: 4px solid #ffc107;">
+                <h5>🎯 Margin Analysis</h5>
+                <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin: 5px 0; font-size: 0.9em;">
+                    <strong>🟢 Excellent (≤8%):</strong> Months with infrastructure costs ≤8% of revenue
+                </div>
+                <div style="background: #fff3cd; padding: 10px; border-radius: 4px; margin: 5px 0; font-size: 0.9em;">
+                    <strong>🟡 Good (8-15%):</strong> Healthy margins with room for other costs
+                </div>
+                <div style="background: #f8d7da; padding: 10px; border-radius: 4px; margin: 5px 0; font-size: 0.9em;">
+                    <strong>🟠 Concerning (>15%):</strong> High infrastructure costs relative to revenue
+                </div>
+            </div>
+        </div>
+    `;
+
+    return analysisTable;
 }
 
 // Initialize interface when page loads
