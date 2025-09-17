@@ -306,6 +306,27 @@ function loadDefaultValues() {
     document.getElementById('storage_gb_required').value = defaultConfig.infrastructure_specs.capacity_planning.storage_gb_required;
     document.getElementById('storage_cost_per_gb_month').value = defaultConfig.infrastructure_specs.capacity_planning.storage_cost_per_gb_month;
 
+    // Load timezone distribution values if they exist in config and elements exist
+    if (defaultConfig.child_usage_model &&
+        defaultConfig.child_usage_model.timezone_awareness &&
+        defaultConfig.child_usage_model.timezone_awareness.timezone_distribution) {
+
+        const timezoneDistribution = defaultConfig.child_usage_model.timezone_awareness.timezone_distribution;
+
+        if (document.getElementById('timezone_eastern') && timezoneDistribution.eastern) {
+            document.getElementById('timezone_eastern').value = timezoneDistribution.eastern.percentage;
+        }
+        if (document.getElementById('timezone_central') && timezoneDistribution.central) {
+            document.getElementById('timezone_central').value = timezoneDistribution.central.percentage;
+        }
+        if (document.getElementById('timezone_mountain') && timezoneDistribution.mountain) {
+            document.getElementById('timezone_mountain').value = timezoneDistribution.mountain.percentage;
+        }
+        if (document.getElementById('timezone_pacific') && timezoneDistribution.pacific) {
+            document.getElementById('timezone_pacific').value = timezoneDistribution.pacific.percentage;
+        }
+    }
+
     // Update display values and set up event listeners
     updateDisplayValues();
     setupEventListeners();
@@ -447,6 +468,22 @@ function gatherConfiguration() {
         config.time_zone_patterns.weekend_pattern.hours[hour.toString()] = weekendValue;
     }
 
+    // Update timezone distribution when child model is enabled
+    if (childModelEnabled) {
+        const eastern = parseFloat(document.getElementById('timezone_eastern').value) || 0.47;
+        const central = parseFloat(document.getElementById('timezone_central').value) || 0.29;
+        const mountain = parseFloat(document.getElementById('timezone_mountain').value) || 0.07;
+        const pacific = parseFloat(document.getElementById('timezone_pacific').value) || 0.17;
+
+        // Update timezone distribution in child usage model
+        config.child_usage_model.timezone_awareness.timezone_distribution = {
+            "eastern": { "percentage": eastern, "utc_offset": -5 },
+            "central": { "percentage": central, "utc_offset": -6 },
+            "mountain": { "percentage": mountain, "utc_offset": -7 },
+            "pacific": { "percentage": pacific, "utc_offset": -8 }
+        };
+    }
+
     // Instance configuration is now fixed (gen4n_mid only)
 
     return config;
@@ -515,6 +552,21 @@ function autoSaveConfig() {
             currentConfig.child_usage_model.behavioral_model.age_range = "2.5-3.5"; // Balanced reference group
             currentConfig.child_usage_model.behavioral_model.schedule_type = populationModel.primary_schedule_type;
             currentConfig.child_usage_model.behavioral_model.nap_time_window = populationModel.default_nap_window;
+
+            // Save timezone distribution settings if inputs exist
+            if (document.getElementById('timezone_eastern')) {
+                const eastern = parseFloat(document.getElementById('timezone_eastern').value) || 0.47;
+                const central = parseFloat(document.getElementById('timezone_central').value) || 0.29;
+                const mountain = parseFloat(document.getElementById('timezone_mountain').value) || 0.07;
+                const pacific = parseFloat(document.getElementById('timezone_pacific').value) || 0.17;
+
+                currentConfig.child_usage_model.timezone_awareness.timezone_distribution = {
+                    "eastern": { "percentage": eastern, "utc_offset": -5 },
+                    "central": { "percentage": central, "utc_offset": -6 },
+                    "mountain": { "percentage": mountain, "utc_offset": -7 },
+                    "pacific": { "percentage": pacific, "utc_offset": -8 }
+                };
+            }
         } else {
             // Generic model uses 10% concurrent ratio
             currentConfig.real_data_baseline.peak_concurrent_ratio = 0.10;
@@ -678,13 +730,8 @@ function getOptimalInstanceType(month, config) {
     return bestType[0];
 }
 
-function calculateChildUsageMultiplier(hour, isWeekend, config) {
-    // Convert hour to time string for pattern matching
-    const childModel = config.child_usage_model;
-    const patterns = childModel.schedule_patterns;
-    const routineType = isWeekend ? 'weekend_routine' : 'weekday_routine';
-    const routine = patterns[routineType];
-
+// Helper function to get multiplier for a specific hour in a routine
+function getMultiplierForHour(hour, routine) {
     // Find which time window this hour falls into
     for (const [timeWindow, patternData] of Object.entries(routine)) {
         const [startTime, endTime] = timeWindow.split('-');
@@ -705,6 +752,40 @@ function calculateChildUsageMultiplier(hour, isWeekend, config) {
 
     // Default fallback if no pattern matches
     return 0.01;
+}
+
+function calculateChildUsageMultiplier(hour, isWeekend, config) {
+    const childModel = config.child_usage_model;
+    const patterns = childModel.schedule_patterns;
+    const routineType = isWeekend ? 'weekend_routine' : 'weekday_routine';
+    const routine = patterns[routineType];
+
+    // Get timezone distribution configuration
+    const timezoneAwareness = childModel.timezone_awareness;
+
+    // If timezone awareness is disabled, use old behavior for all users in EST
+    if (!timezoneAwareness || !timezoneAwareness.local_time_calculation) {
+        return getMultiplierForHour(hour, routine);
+    }
+
+    const timezoneDistribution = timezoneAwareness.timezone_distribution;
+    let weightedMultiplier = 0;
+
+    // Calculate weighted average across all timezones
+    for (const [zoneName, zoneData] of Object.entries(timezoneDistribution)) {
+        // Convert EST hour to local time for this timezone
+        // EST is UTC-5, so we need to adjust by the difference in UTC offsets
+        const hourOffset = zoneData.utc_offset - (-5); // Difference from EST (UTC-5)
+        const localHour = (hour + hourOffset + 24) % 24; // Ensure positive hour
+
+        // Get the multiplier for this timezone's local hour
+        const multiplier = getMultiplierForHour(localHour, routine);
+
+        // Add weighted contribution to total
+        weightedMultiplier += zoneData.percentage * multiplier;
+    }
+
+    return weightedMultiplier;
 }
 
 function calculateHourlyCosts(month, monthlyUsers, config) {

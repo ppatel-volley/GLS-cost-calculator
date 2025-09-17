@@ -523,6 +523,73 @@
                     </div>
                 </div>
 
+                <div class="section" id="timezone_distribution_section" style="display: none;">
+                    <h3>🌍 Timezone Distribution</h3>
+                    <div class="section-description">
+                        Configure how your users are distributed across US timezones. This affects peak usage patterns since children have different bedtimes and routines based on their local time.
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Eastern Timezone (EST/EDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Eastern timezone (UTC-5). Includes states like NY, FL, GA, NC, SC, VA, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_eastern" value="0.47" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Central Timezone (CST/CDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Central timezone (UTC-6). Includes states like TX, IL, MO, LA, AL, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_central" value="0.29" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Mountain Timezone (MST/MDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Mountain timezone (UTC-7). Includes states like CO, UT, AZ, NM, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_mountain" value="0.07" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Pacific Timezone (PST/PDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Pacific timezone (UTC-8). Includes states like CA, WA, OR, NV, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_pacific" value="0.17" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Timezone Total Validation</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">ℹ️</span>
+                                <span class="tooltiptext">All timezone percentages should add up to 1.00 (100%). The calculator will show a warning if they don't.</span>
+                            </div>
+                        </div>
+                        <div id="timezone_total_display" style="background: #f0f8ff; padding: 15px; border-radius: 6px; font-size: 0.9em; color: #1e3a8a;">
+                            <strong>Current Total:</strong> <span id="timezone_total_value">1.00</span> (100%)
+                            <div id="timezone_warning" style="color: #d63031; font-weight: bold; margin-top: 5px; display: none;">
+                                ⚠️ Timezone percentages must add up to 1.00 (100%)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="section">
                     <h3>👥 User Base & Growth</h3>
                     <div class="section-description">
@@ -802,7 +869,57 @@
     <script>
         // Handle child model toggle
         function toggleChildModel() {
+            const childModelEnabled = document.getElementById('child_model_enabled').checked;
+            const timezoneSection = document.getElementById('timezone_distribution_section');
+
+            // Show/hide timezone section based on child model
+            if (timezoneSection) {
+                timezoneSection.style.display = childModelEnabled ? 'block' : 'none';
+            }
+
             // Auto-save settings when child model toggle changes
+            if (typeof autoSaveConfig === 'function') {
+                autoSaveConfig();
+            }
+        }
+
+        // Validate timezone percentages sum to 1.00
+        function validateTimezoneDistribution() {
+            const eastern = parseFloat(document.getElementById('timezone_eastern').value) || 0;
+            const central = parseFloat(document.getElementById('timezone_central').value) || 0;
+            const mountain = parseFloat(document.getElementById('timezone_mountain').value) || 0;
+            const pacific = parseFloat(document.getElementById('timezone_pacific').value) || 0;
+
+            const total = eastern + central + mountain + pacific;
+            const totalDisplay = document.getElementById('timezone_total_value');
+            const warning = document.getElementById('timezone_warning');
+
+            if (totalDisplay) {
+                totalDisplay.textContent = total.toFixed(2);
+            }
+
+            if (warning) {
+                const isValid = Math.abs(total - 1.0) < 0.01; // Allow small floating point errors
+                warning.style.display = isValid ? 'none' : 'block';
+
+                // Update input styling
+                const inputs = ['timezone_eastern', 'timezone_central', 'timezone_mountain', 'timezone_pacific'];
+                inputs.forEach(id => {
+                    const input = document.getElementById(id);
+                    if (input) {
+                        input.style.borderColor = isValid ? '' : '#ff4444';
+                    }
+                });
+            }
+
+            return Math.abs(total - 1.0) < 0.01;
+        }
+
+        // Handle timezone input changes
+        function handleTimezoneChange() {
+            validateTimezoneDistribution();
+
+            // Auto-save settings when timezone values change
             if (typeof autoSaveConfig === 'function') {
                 autoSaveConfig();
             }
@@ -815,10 +932,26 @@
             if (childModelSelect) {
                 childModelSelect.addEventListener('change', toggleChildModel);
 
-                // Auto-save initial settings
-                if (typeof autoSaveConfig === 'function') {
-                    autoSaveConfig();
+                // Initialize timezone section visibility
+                toggleChildModel();
+            }
+
+            // Set up timezone input listeners
+            const timezoneInputs = ['timezone_eastern', 'timezone_central', 'timezone_mountain', 'timezone_pacific'];
+            timezoneInputs.forEach(id => {
+                const input = document.getElementById(id);
+                if (input) {
+                    input.addEventListener('input', handleTimezoneChange);
+                    input.addEventListener('change', handleTimezoneChange);
                 }
+            });
+
+            // Initialize timezone validation
+            validateTimezoneDistribution();
+
+            // Auto-save initial settings
+            if (typeof autoSaveConfig === 'function') {
+                autoSaveConfig();
             }
         });
     </script>
