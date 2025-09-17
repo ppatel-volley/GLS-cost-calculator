@@ -869,7 +869,7 @@
     <script>
         // Handle child model toggle
         function toggleChildModel() {
-            const childModelEnabled = document.getElementById('child_model_enabled').checked;
+            const childModelEnabled = document.getElementById('child_model_enabled').value === 'true';
             const timezoneSection = document.getElementById('timezone_distribution_section');
 
             // Show/hide timezone section based on child model
