@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_type"
     ],
     "deny": [],
     "ask": []

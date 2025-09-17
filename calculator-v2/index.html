@@ -508,17 +508,81 @@
                     </div>
 
                     <div id="child_model_explanation" style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #4a90e2;">
-                        <h4 style="margin: 0 0 10px 0; color: #2c5aa0; font-size: 0.95rem;">🧸 Child Model Includes Automatically:</h4>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; font-size: 0.85rem;">
-                            <div><strong>📅 Daily Schedules:</strong> Weekday vs weekend patterns, nap times (1-3 PM), bedtime routines (6:30-8 PM)</div>
-                            <div><strong>🌍 Timezone Awareness:</strong> Local time calculations across US timezones with staggered peak distribution</div>
-                            <div><strong>👶 Age Demographics:</strong> Mixed population (30% toddlers, 40% preschoolers, 30% pre-K)</div>
-                            <div><strong>👨‍👩‍👧 Supervision Patterns:</strong> Parental supervision ratios, distraction-driven usage spikes</div>
-                            <div><strong>⏱️ Attention Spans:</strong> Age-appropriate session durations (8-18 min), attention volatility modeling</div>
-                            <div><strong>🏠 Schedule Types:</strong> Daycare (40%), stay-at-home (35%), mixed schedules (25%)</div>
+                        <h4 style="margin: 0 0 10px 0; color: #2c5aa0; font-size: 0.95rem;">🧸 Child Model Includes:</h4>
+                        <div style="display: grid; grid-template-columns: repeat(1, 1fr); gap: 12px; font-size: 0.85rem;">
+                            <div><strong>📅 Daily Schedules:</strong> Realistic weekday vs weekend patterns with nap times (1-3 PM) and bedtime routines (6:30-8 PM)</div>
+                            <div><strong>🌍 Timezone Awareness:</strong> Local time calculations across US timezones with staggered peak distribution (configurable below)</div>
+                            <div><strong>👶 Lower Peak Usage:</strong> 8% concurrent ratio vs 10% generic (reflects realistic toddler attention patterns)</div>
                         </div>
                         <div style="margin-top: 12px; padding: 10px; background: #e8f4fd; border-radius: 6px; font-size: 0.8rem; color: #555;">
-                            <strong>✨ Population-Level Modeling:</strong> All behavioral patterns are applied automatically based on research-backed assumptions for children's streaming habits. No individual configuration needed - the system models realistic population-wide usage patterns.
+                            <strong>✨ Realistic Child Modeling:</strong> Uses research-backed assumptions for toddler/preschooler streaming patterns with authentic daily routines and timezone-aware peak distribution.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section" id="timezone_distribution_section" style="display: none;">
+                    <h3>🌍 Timezone Distribution</h3>
+                    <div class="section-description">
+                        Configure how your users are distributed across US timezones. This affects peak usage patterns since children have different bedtimes and routines based on their local time.
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Eastern Timezone (EST/EDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Eastern timezone (UTC-5). Includes states like NY, FL, GA, NC, SC, VA, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_eastern" value="0.47" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Central Timezone (CST/CDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Central timezone (UTC-6). Includes states like TX, IL, MO, LA, AL, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_central" value="0.29" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Mountain Timezone (MST/MDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Mountain timezone (UTC-7). Includes states like CO, UT, AZ, NM, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_mountain" value="0.07" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Pacific Timezone (PST/PDT)</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Percentage of users in Pacific timezone (UTC-8). Includes states like CA, WA, OR, NV, etc.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="timezone_pacific" value="0.17" min="0" max="1" step="0.01">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Timezone Total Validation</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">ℹ️</span>
+                                <span class="tooltiptext">All timezone percentages should add up to 1.00 (100%). The calculator will show a warning if they don't.</span>
+                            </div>
+                        </div>
+                        <div id="timezone_total_display" style="background: #f0f8ff; padding: 15px; border-radius: 6px; font-size: 0.9em; color: #1e3a8a;">
+                            <strong>Current Total:</strong> <span id="timezone_total_value">1.00</span> (100%)
+                            <div id="timezone_warning" style="color: #d63031; font-weight: bold; margin-top: 5px; display: none;">
+                                ⚠️ Timezone percentages must add up to 1.00 (100%)
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -531,10 +595,10 @@
 
                     <div class="form-group">
                         <div class="label-with-tooltip">
-                            <label>Current Daily Active Users (DAU)</label>
+                            <label>Starting Daily Active Users (DAU)</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">?</span>
-                                <span class="tooltiptext">How many unique users use your service each day. This is your starting point for growth calculations.</span>
+                                <span class="tooltiptext">How many unique users use your service each day at launch. This is your starting point for Month 1 growth calculations.</span>
                             </div>
                         </div>
                         <input type="number" id="current_dau" value="4140" min="0">
@@ -567,10 +631,10 @@
                             <label>Household Percentage (Research-Based)</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">?</span>
-                                <span class="tooltiptext">Research shows 45% of current users are households with children interested in CoComelon content. Lower than initially expected due to individual account prevalence.</span>
+                                <span class="tooltiptext">Research shows 10% of US households have children in CoComelon target age (1.5-5 years). This filter is ONLY applied to the starting DAU in Month 1 to identify existing CoComelon-interested users. All new marketing users are already CoComelon-targeted.</span>
                             </div>
                         </div>
-                        <input type="number" id="household_percentage" value="0.45" min="0" max="1" step="0.01">
+                        <input type="number" id="household_percentage" value="0.10" min="0" max="1" step="0.01">
                     </div>
 
                     <div class="form-group">
@@ -593,7 +657,7 @@
                             </div>
                         </div>
                         <div style="background: #e8f4f8; padding: 15px; border-radius: 6px; font-size: 0.9em; color: #2c5aa0;">
-                            <strong>Month 1:</strong> (Current DAU × <span id="household_display">45</span>% household filter) + Marketing targets<br>
+                            <strong>Month 1:</strong> (Starting DAU × <span id="household_display">10</span>% household filter) + Marketing targets<br>
                             <strong>Month 2+:</strong> (Previous users × <span id="retention_display">88</span>% retention) + New marketing acquisitions<br>
                             <strong>Marketing Control:</strong> Direct monthly acquisition targets - all new users assumed CoComelon users
                         </div>
@@ -678,9 +742,11 @@
                 <div class="section">
                     <h3>🕐 Hourly Usage Patterns</h3>
                     <div class="section-description">
-                        Configure when your users are most active throughout the day. These patterns drive your infrastructure costs since you need more servers during peak hours.
+                        Configure when your users are most active throughout the day (in Eastern Time). These patterns drive your infrastructure costs since you need more servers during peak hours. Patterns are based on typical children's viewing habits and are automatically adjusted for users in different US timezones.
                         <br><br>
                         <strong>Usage Multipliers:</strong> 1.0 = 100% of peak concurrent users online, 0.5 = 50% online, 0.1 = 10% online
+                        <br><br>
+                        <strong>Research Basis:</strong> Peak times reflect common childhood routines (nap time, after-school, bedtime) but specific multiplier values should be validated with actual usage data once available.
                     </div>
 
                     <div class="pattern-legend">
@@ -694,10 +760,16 @@
                         </div>
                     </div>
                     
-                    <h5>Weekday Pattern (School Days)</h5>
+                    <h5>Weekday Pattern (School Days) - All Times in Eastern Time (EST/EDT)</h5>
+                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        <strong>Timezone Reference:</strong> Enter usage multipliers for Eastern Time hours. The calculator automatically converts these to local time for each user's timezone (Eastern 47%, Central 29%, Mountain 7%, Pacific 17%) to create staggered peak distributions.
+                    </div>
                     <div class="hourly-pattern" id="weekday_pattern"></div>
-                    
-                    <h5 style="margin-top: 20px;">Weekend Pattern (Saturday/Sunday)</h5>
+
+                    <h5 style="margin-top: 20px;">Weekend Pattern (Saturday/Sunday) - All Times in Eastern Time (EST/EDT)</h5>
+                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        <strong>Example:</strong> When you set 6 PM EST to 1.0 (peak usage), users in Pacific Time experience this peak at their local 3 PM, creating natural timezone staggering that reduces infrastructure costs.
+                    </div>
                     <div class="hourly-pattern" id="weekend_pattern"></div>
                 </div>
 
@@ -769,10 +841,11 @@
                                     • gen4n_mid: 6 streams/server at $0.77/hour<br>
                                     • Child model: 8% concurrent (realistic for ages 1.5-5)<br><br>
 
-                                    <strong>Daily Usage Peaks:</strong><br>
-                                    • Bedtime routine: 6:30-8 PM (45% peak usage)<br>
-                                    • Post-nap energy: 3-5 PM (35% peak usage)<br>
-                                    • Nap time: 1-3 PM (3% usage - cost savings)<br><br>
+                                    <strong>Daily Usage Peaks (EST Times):</strong><br>
+                                    • Bedtime routine: 6:30-8 PM EST (45% peak usage)<br>
+                                    • Post-nap energy: 3-5 PM EST (35% peak usage)<br>
+                                    • Nap time: 1-3 PM EST (3% usage - cost savings)<br>
+                                    <em>Note: Times convert to local zones automatically (6 PM EST = 3 PM PST)</em><br><br>
 
                                     <strong>Cost Evolution:</strong><br>
                                     • Month 1-3: $1.15-1.30/user (launch overhead)<br>
@@ -802,7 +875,57 @@
     <script>
         // Handle child model toggle
         function toggleChildModel() {
+            const childModelEnabled = document.getElementById('child_model_enabled').value === 'true';
+            const timezoneSection = document.getElementById('timezone_distribution_section');
+
+            // Show/hide timezone section based on child model
+            if (timezoneSection) {
+                timezoneSection.style.display = childModelEnabled ? 'block' : 'none';
+            }
+
             // Auto-save settings when child model toggle changes
+            if (typeof autoSaveConfig === 'function') {
+                autoSaveConfig();
+            }
+        }
+
+        // Validate timezone percentages sum to 1.00
+        function validateTimezoneDistribution() {
+            const eastern = parseFloat(document.getElementById('timezone_eastern').value) || 0;
+            const central = parseFloat(document.getElementById('timezone_central').value) || 0;
+            const mountain = parseFloat(document.getElementById('timezone_mountain').value) || 0;
+            const pacific = parseFloat(document.getElementById('timezone_pacific').value) || 0;
+
+            const total = eastern + central + mountain + pacific;
+            const totalDisplay = document.getElementById('timezone_total_value');
+            const warning = document.getElementById('timezone_warning');
+
+            if (totalDisplay) {
+                totalDisplay.textContent = total.toFixed(2);
+            }
+
+            if (warning) {
+                const isValid = Math.abs(total - 1.0) < 0.01; // Allow small floating point errors
+                warning.style.display = isValid ? 'none' : 'block';
+
+                // Update input styling
+                const inputs = ['timezone_eastern', 'timezone_central', 'timezone_mountain', 'timezone_pacific'];
+                inputs.forEach(id => {
+                    const input = document.getElementById(id);
+                    if (input) {
+                        input.style.borderColor = isValid ? '' : '#ff4444';
+                    }
+                });
+            }
+
+            return Math.abs(total - 1.0) < 0.01;
+        }
+
+        // Handle timezone input changes
+        function handleTimezoneChange() {
+            validateTimezoneDistribution();
+
+            // Auto-save settings when timezone values change
             if (typeof autoSaveConfig === 'function') {
                 autoSaveConfig();
             }
@@ -815,10 +938,26 @@
             if (childModelSelect) {
                 childModelSelect.addEventListener('change', toggleChildModel);
 
-                // Auto-save initial settings
-                if (typeof autoSaveConfig === 'function') {
-                    autoSaveConfig();
+                // Initialize timezone section visibility
+                toggleChildModel();
+            }
+
+            // Set up timezone input listeners
+            const timezoneInputs = ['timezone_eastern', 'timezone_central', 'timezone_mountain', 'timezone_pacific'];
+            timezoneInputs.forEach(id => {
+                const input = document.getElementById(id);
+                if (input) {
+                    input.addEventListener('input', handleTimezoneChange);
+                    input.addEventListener('change', handleTimezoneChange);
                 }
+            });
+
+            // Initialize timezone validation
+            validateTimezoneDistribution();
+
+            // Auto-save initial settings
+            if (typeof autoSaveConfig === 'function') {
+                autoSaveConfig();
             }
         });
     </script>
