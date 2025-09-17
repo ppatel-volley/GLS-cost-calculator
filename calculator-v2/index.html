@@ -595,10 +595,10 @@
 
                     <div class="form-group">
                         <div class="label-with-tooltip">
-                            <label>Current Daily Active Users (DAU)</label>
+                            <label>Starting Daily Active Users (DAU)</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">?</span>
-                                <span class="tooltiptext">How many unique users use your service each day. This is your starting point for growth calculations.</span>
+                                <span class="tooltiptext">How many unique users use your service each day at launch. This is your starting point for Month 1 growth calculations.</span>
                             </div>
                         </div>
                         <input type="number" id="current_dau" value="4140" min="0">
@@ -631,10 +631,10 @@
                             <label>Household Percentage (Research-Based)</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">?</span>
-                                <span class="tooltiptext">Research shows 45% of current users are households with children interested in CoComelon content. Lower than initially expected due to individual account prevalence.</span>
+                                <span class="tooltiptext">Research shows 10% of US households have children in CoComelon target age (1.5-5 years). This filter is ONLY applied to the starting DAU in Month 1 to identify existing CoComelon-interested users. All new marketing users are already CoComelon-targeted.</span>
                             </div>
                         </div>
-                        <input type="number" id="household_percentage" value="0.45" min="0" max="1" step="0.01">
+                        <input type="number" id="household_percentage" value="0.10" min="0" max="1" step="0.01">
                     </div>
 
                     <div class="form-group">
@@ -657,7 +657,7 @@
                             </div>
                         </div>
                         <div style="background: #e8f4f8; padding: 15px; border-radius: 6px; font-size: 0.9em; color: #2c5aa0;">
-                            <strong>Month 1:</strong> (Current DAU × <span id="household_display">45</span>% household filter) + Marketing targets<br>
+                            <strong>Month 1:</strong> (Starting DAU × <span id="household_display">10</span>% household filter) + Marketing targets<br>
                             <strong>Month 2+:</strong> (Previous users × <span id="retention_display">88</span>% retention) + New marketing acquisitions<br>
                             <strong>Marketing Control:</strong> Direct monthly acquisition targets - all new users assumed CoComelon users
                         </div>

@@ -1,5 +1,5 @@
 // Default configuration data (business model elements removed)
-// NOTE: Month 1 filters current DAU by household percentage (only households with kids want CoComelon)
+// NOTE: Month 1 filters starting DAU by household percentage (only households with kids want CoComelon)
 // Growth assumes all new users are CoComelon-interested (no household filtering after month 1)
 const defaultConfig = {
     real_data_baseline: {
@@ -220,14 +220,14 @@ let currentResults = null;
 let currentMonth = 1;
 
 // Time formatting function
-function formatTimeEST(hour) {
+function formatTimeLocal(hour) {
     const timeLabels = [
         "12 AM", "1 AM", "2 AM", "3 AM", "4 AM", "5 AM",
         "6 AM", "7 AM", "8 AM", "9 AM", "10 AM", "11 AM",
         "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM",
         "6 PM", "7 PM", "8 PM", "9 PM", "10 PM", "11 PM"
     ];
-    return timeLabels[hour] + " EST";
+    return timeLabels[hour] + " Local";
 }
 
 // Check if hour is peak time
@@ -345,24 +345,38 @@ function setupEventListeners() {
     // Add event listeners to update display values when inputs change
     document.getElementById('household_percentage').addEventListener('input', updateDisplayValues);
     document.getElementById('user_retention_rate').addEventListener('input', updateDisplayValues);
+
+    // Add event listener for child model toggle to update hourly patterns
+    const childModelSelect = document.getElementById('child_model_enabled');
+    if (childModelSelect) {
+        childModelSelect.addEventListener('change', function() {
+            const useChildModel = this.value === 'true';
+            updateHourlyPatternInputs(useChildModel);
+        });
+    }
 }
 
 function createHourlyPatternInputs() {
+    // Use the same local-time patterns for both models
+    // These patterns represent universal local-time behavior (5 PM = 1.0 peak anywhere)
+    let weekdayDefaults = defaultConfig.time_zone_patterns.weekday_pattern.hours;
+    let weekendDefaults = defaultConfig.time_zone_patterns.weekend_pattern.hours;
+
     // Create weekday pattern inputs
     const weekdayContainer = document.getElementById('weekday_pattern');
     for (let hour = 0; hour < 24; hour++) {
         const div = document.createElement('div');
         div.className = 'hour-block';
-        
+
         const isPeak = isPeakHour(hour, false);
         const labelClass = isPeak ? 'hour-label peak' : 'hour-label off-peak';
         const inputClass = isPeak ? 'hourly-input peak' : 'hourly-input off-peak';
-        
+
         div.innerHTML = `
-            <div class="${labelClass}">${formatTimeEST(hour)}</div>
-            <input type="number" class="${inputClass}" id="weekday_${hour}" 
-                   value="${defaultConfig.time_zone_patterns.weekday_pattern.hours[hour.toString()]}"
-                   min="0" max="1" step="0.001" title="Usage multiplier for ${formatTimeEST(hour)} on weekdays">
+            <div class="${labelClass}">${formatTimeLocal(hour)}</div>
+            <input type="number" class="${inputClass}" id="weekday_${hour}"
+                   value="${weekdayDefaults[hour.toString()]}"
+                   min="0" max="1" step="0.001" title="Local time usage multiplier for ${formatTimeLocal(hour)} on weekdays">
         `;
         weekdayContainer.appendChild(div);
     }
@@ -372,21 +386,43 @@ function createHourlyPatternInputs() {
     for (let hour = 0; hour < 24; hour++) {
         const div = document.createElement('div');
         div.className = 'hour-block';
-        
+
         const isPeak = isPeakHour(hour, true);
         const labelClass = isPeak ? 'hour-label peak' : 'hour-label off-peak';
         const inputClass = isPeak ? 'hourly-input peak' : 'hourly-input off-peak';
-        
+
         div.innerHTML = `
-            <div class="${labelClass}">${formatTimeEST(hour)}</div>
-            <input type="number" class="${inputClass}" id="weekend_${hour}" 
-                   value="${defaultConfig.time_zone_patterns.weekend_pattern.hours[hour.toString()]}"
-                   min="0" max="1" step="0.001" title="Usage multiplier for ${formatTimeEST(hour)} on weekends">
+            <div class="${labelClass}">${formatTimeLocal(hour)}</div>
+            <input type="number" class="${inputClass}" id="weekend_${hour}"
+                   value="${weekendDefaults[hour.toString()]}"
+                   min="0" max="1" step="0.001" title="Local time usage multiplier for ${formatTimeLocal(hour)} on weekends">
         `;
         weekendContainer.appendChild(div);
     }
 }
 
+function updateHourlyPatternInputs(useChildModel) {
+    // Both models now use the same local-time pattern defaults
+    // The model type only affects concurrent ratio (8% vs 10%) and timezone awareness
+
+    // Update weekday pattern inputs with local-time defaults
+    for (let hour = 0; hour < 24; hour++) {
+        const input = document.getElementById(`weekday_${hour}`);
+        if (input) {
+            const newValue = defaultConfig.time_zone_patterns.weekday_pattern.hours[hour.toString()];
+            input.value = newValue.toFixed(3);
+        }
+    }
+
+    // Update weekend pattern inputs with local-time defaults
+    for (let hour = 0; hour < 24; hour++) {
+        const input = document.getElementById(`weekend_${hour}`);
+        if (input) {
+            const newValue = defaultConfig.time_zone_patterns.weekend_pattern.hours[hour.toString()];
+            input.value = newValue.toFixed(3);
+        }
+    }
+}
 
 function createMonthTabs() {
     const tabsContainer = document.getElementById('month_tabs');
@@ -657,7 +693,7 @@ function calculateMonthlyUsers(config) {
         let monthUsers;
         
         if (month === 1) {
-            // Month 1: Apply household filter to current DAU + first month's marketing targets
+            // Month 1: Apply household filter to starting DAU + first month's marketing targets
             const existingCocomelon = baseline.current_dau * baseline.household_percentage;
             const targetKey = `month_${month}`;
             const newUsers = marketing.new_user_monthly_targets[targetKey] || 0;
@@ -788,6 +824,29 @@ function calculateChildUsageMultiplier(hour, isWeekend, config) {
     return weightedMultiplier;
 }
 
+function calculateTimezoneAwareMultiplier(estHour, isWeekend, localTimePattern, config) {
+    // Apply user's local-time patterns across all timezones
+    // localTimePattern represents universal local time behavior (17:00 = 5 PM local anywhere)
+
+    const timezoneDistribution = config.child_usage_model.timezone_awareness.timezone_distribution;
+    let weightedMultiplier = 0;
+
+    // Calculate weighted average across all timezones
+    for (const [zoneName, zoneData] of Object.entries(timezoneDistribution)) {
+        // Convert EST hour to local time for this timezone
+        const hourOffset = zoneData.utc_offset - (-5); // Difference from EST (UTC-5)
+        const localHour = (estHour + hourOffset + 24) % 24; // Ensure positive hour
+
+        // Get the multiplier for this timezone's local hour using user's pattern
+        const multiplier = localTimePattern[localHour.toString()] || 0;
+
+        // Add weighted contribution to total
+        weightedMultiplier += zoneData.percentage * multiplier;
+    }
+
+    return weightedMultiplier;
+}
+
 function calculateHourlyCosts(month, monthlyUsers, config) {
     const totalUsers = monthlyUsers.total_users;
     const peakConcurrent = monthlyUsers.peak_concurrent;
@@ -799,23 +858,11 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
     const sessionsPerHost = instanceSpecs.sessions_per_host;
     const hourlyRate = instanceSpecs.hourly_rate;
 
-    // Get usage patterns - use child model if enabled, otherwise generic patterns
-    let weekdayPattern, weekendPattern;
-
-    if (config.child_usage_model && config.child_usage_model.enabled) {
-        // Create child usage patterns by calculating multipliers for each hour
-        weekdayPattern = {};
-        weekendPattern = {};
-
-        for (let hour = 0; hour < 24; hour++) {
-            weekdayPattern[hour.toString()] = calculateChildUsageMultiplier(hour, false, config);
-            weekendPattern[hour.toString()] = calculateChildUsageMultiplier(hour, true, config);
-        }
-    } else {
-        // Use generic patterns
-        weekdayPattern = config.time_zone_patterns.weekday_pattern.hours;
-        weekendPattern = config.time_zone_patterns.weekend_pattern.hours;
-    }
+    // Always use user's hourly pattern inputs regardless of model type
+    // The model type only affects what default patterns are loaded into the inputs
+    // IMPORTANT: These patterns represent LOCAL TIME behavior (17:00 = 5 PM local anywhere)
+    let weekdayPattern = config.time_zone_patterns.weekday_pattern.hours;
+    let weekendPattern = config.time_zone_patterns.weekend_pattern.hours;
     
     // Calculate capacity planning
     const capacityConfig = config.infrastructure_specs.capacity_planning;
@@ -840,16 +887,26 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
     let maxHostsNeeded = 0;
     
     for (let hour = 0; hour < 24; hour++) {
-        // Weekday calculations - use research-backed hourly usage patterns
-        const weekdayMultiplier = weekdayPattern[hour.toString()] || 0;
+        // Calculate timezone-aware multiplier for this EST hour
+        let weekdayMultiplier;
+        if (config.child_usage_model && config.child_usage_model.enabled && config.child_usage_model.timezone_awareness) {
+            // Apply timezone-aware calculation: patterns represent LOCAL time behavior
+            weekdayMultiplier = calculateTimezoneAwareMultiplier(hour, false, weekdayPattern, config);
+        } else {
+            // Use pattern as-is (legacy behavior for generic model)
+            weekdayMultiplier = weekdayPattern[hour.toString()] || 0;
+        }
+
         const weekdayConcurrent = peakConcurrent * weekdayMultiplier;
-        const weekdayHosts = Math.max(1, Math.ceil(weekdayConcurrent / sessionsPerHost));
+        let weekdayHosts = Math.max(1, Math.ceil(weekdayConcurrent / sessionsPerHost));
+        // AWS requires minimum 2 servers and servers come in pairs
+        weekdayHosts = Math.max(2, weekdayHosts % 2 === 0 ? weekdayHosts : weekdayHosts + 1);
 
         // Track peak hours for reporting (>50% usage)
         if (weekdayMultiplier > 0.5) {
             hourlyCosts.peak_hours_info.weekday_peak_hours.push({
                 hour: hour,
-                time: formatTimeEST(hour),
+                time: formatTimeLocal(hour),
                 hosts: weekdayHosts,
                 concurrent: Math.floor(weekdayConcurrent)
             });
@@ -863,19 +920,29 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
             concurrent_users: Math.floor(weekdayConcurrent),
             hosts_needed: weekdayHosts,
             hourly_cost: weekdayHourlyCost,
-            time_est: formatTimeEST(hour)
+            time_local: formatTimeLocal(hour)
         };
 
-        // Weekend calculations - use research-backed hourly usage patterns
-        const weekendMultiplier = weekendPattern[hour.toString()] || 0;
+        // Calculate timezone-aware weekend multiplier for this EST hour
+        let weekendMultiplier;
+        if (config.child_usage_model && config.child_usage_model.enabled && config.child_usage_model.timezone_awareness) {
+            // Apply timezone-aware calculation: patterns represent LOCAL time behavior
+            weekendMultiplier = calculateTimezoneAwareMultiplier(hour, true, weekendPattern, config);
+        } else {
+            // Use pattern as-is (legacy behavior for generic model)
+            weekendMultiplier = weekendPattern[hour.toString()] || 0;
+        }
+
         const weekendConcurrent = peakConcurrent * weekendMultiplier;
-        const weekendHosts = Math.max(1, Math.ceil(weekendConcurrent / sessionsPerHost));
+        let weekendHosts = Math.max(1, Math.ceil(weekendConcurrent / sessionsPerHost));
+        // AWS requires minimum 2 servers and servers come in pairs
+        weekendHosts = Math.max(2, weekendHosts % 2 === 0 ? weekendHosts : weekendHosts + 1);
 
         // Track peak hours for reporting (>50% usage)
         if (weekendMultiplier > 0.5) {
             hourlyCosts.peak_hours_info.weekend_peak_hours.push({
                 hour: hour,
-                time: formatTimeEST(hour),
+                time: formatTimeLocal(hour),
                 hosts: weekendHosts,
                 concurrent: Math.floor(weekendConcurrent)
             });
@@ -889,7 +956,7 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
             concurrent_users: Math.floor(weekendConcurrent),
             hosts_needed: weekendHosts,
             hourly_cost: weekendHourlyCost,
-            time_est: formatTimeEST(hour)
+            time_local: formatTimeLocal(hour)
         };
     }
     
@@ -1046,11 +1113,6 @@ function displayResults(results) {
         </div>
 
         <div class="chart-container">
-            <h4>💰 12-Month Revenue Analysis ($12.99/user/month)</h4>
-            ${generateRevenueAnalysis(results)}
-        </div>
-
-        <div class="chart-container">
             <h4>🧮 Calculation Methodology (Month ${currentMonth} Example)</h4>
             ${generateCalculationBreakdown(monthData, currentMonth, results)}
         </div>
@@ -1084,7 +1146,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
     ) || "17"; // Default to 5 PM
     
     const peakHourData = costs.weekday_hours[peakHour];
-    const peakTime = formatTimeEST(parseInt(peakHour));
+    const peakTime = formatTimeLocal(parseInt(peakHour));
     
     // Find an off-peak hour for comparison
     const offPeakHour = Object.keys(costs.weekday_hours).find(hour => 
@@ -1092,7 +1154,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
     ) || "3"; // Default to 3 AM
     
     const offPeakData = costs.weekday_hours[offPeakHour];
-    const offPeakTime = formatTimeEST(parseInt(offPeakHour));
+    const offPeakTime = formatTimeLocal(parseInt(offPeakHour));
     
     return `
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #28a745;">
@@ -1125,7 +1187,27 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             </div>
             
             <div style="margin-bottom: 20px;">
-                <strong>Step 3: Hourly Demand Examples</strong>
+                <strong>Step 3: Timezone-Aware Usage Calculation</strong>
+                <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
+                    ${config.child_usage_model && config.child_usage_model.enabled ?
+                        `<strong>Child Model - Local Time Patterns with Timezone Distribution:</strong><br>
+                         • <strong>Pattern Logic:</strong> Your hourly patterns represent LOCAL TIME behavior (17:00 = 5 PM local anywhere)<br>
+                         • <strong>Timezone Distribution:</strong> Eastern 47%, Central 29%, Mountain 7%, Pacific 17%<br>
+                         • <strong>Example:</strong> If you set 5 PM = 1.0, this applies to 5 PM local in each timezone<br>
+                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (5 PM in each timezone)<br>
+                         • <strong>Month 1 Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously<br>
+                         • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
+                         • <em>Cost savings come from timezone staggering of identical local-time patterns</em>` :
+                        `<strong>Generic Model (No Timezone Staggering):</strong><br>
+                         • All users treated as Eastern timezone<br>
+                         • Peak hours create uniform demand spikes<br>
+                         • Higher infrastructure costs due to synchronous peaks`
+                    }
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <strong>Step 4: Hourly Demand Examples</strong>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 10px 0;">
                     <div style="padding: 10px; background: white; border-radius: 4px; border-left: 3px solid #dc3545;">
                         <strong>Peak Hour (${peakTime})</strong><br>
@@ -1143,7 +1225,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             </div>
             
             <div style="margin-bottom: 20px;">
-                <strong>Step 4: Daily Cost Calculation</strong>
+                <strong>Step 5: Daily Cost Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
                     • Weekday Daily Cost: <strong>$${costs.monthly_totals.weekday_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong> (sum of all 24 hours)<br>
                     • Weekend Daily Cost: <strong>$${costs.monthly_totals.weekend_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong> (sum of all 24 hours)
@@ -1151,64 +1233,13 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             </div>
             
             <div style="margin-bottom: 20px;">
-                <strong>Step 5: Monthly Total Calculation</strong>
+                <strong>Step 6: Monthly Total Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
                     • Weekdays: $${costs.monthly_totals.weekday_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})} × 22 days = <strong>$${(costs.monthly_totals.weekday_daily_cost * 22).toLocaleString('en-US', {maximumFractionDigits: 0})}</strong><br>
                     • Weekends: $${costs.monthly_totals.weekend_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})} × 8 days = <strong>$${(costs.monthly_totals.weekend_daily_cost * 8).toLocaleString('en-US', {maximumFractionDigits: 0})}</strong><br>
                     • Storage: <strong>$${costs.monthly_totals.storage_cost.toFixed(0)}</strong><br>
                     • <strong>Total Monthly Cost: $${costs.monthly_totals.total_monthly_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong>
                 </div>
-            </div>
-            
-            <div style="background: #e8f5e8; padding: 15px; border-radius: 6px; border-left: 4px solid #28a745;">
-                <strong>💡 Key Formula:</strong><br>
-                <code style="background: white; padding: 5px; border-radius: 3px;">
-                    Servers Needed per Hour = CEIL(Concurrent Users × Hour Multiplier ÷ Sessions per Server)
-                </code><br><br>
-                <strong>Weekday Example:</strong> At ${peakTime}, ${users.peak_concurrent.toLocaleString()} peak × 1.0 multiplier ÷ ${costs.sessions_per_host} streams = ${Math.ceil(users.peak_concurrent / costs.sessions_per_host)} servers needed<br>
-                <strong>Weekend Example:</strong> At 1:00 PM, ${users.peak_concurrent.toLocaleString()} peak × 0.75 multiplier ÷ ${costs.sessions_per_host} streams = ${Math.ceil(users.peak_concurrent * 0.75 / costs.sessions_per_host)} servers needed
-            </div>
-
-            <div style="background: #fff3cd; padding: 15px; border-radius: 6px; border-left: 4px solid #ffc107; margin-top: 15px;">
-                <strong>🎯 Why Cost Per User Approaches $1.00 (gen4n_mid Analysis)</strong><br><br>
-
-                <strong>Month ${month} Context:</strong><br>
-                • Current cost per user: <strong>$${costs.monthly_totals.cost_per_user.toFixed(2)}</strong><br>
-                • User base: <strong>${users.total_users.toLocaleString()}</strong> (${month === 1 ? 'initial launch scale' : month <= 3 ? 'early growth phase' : month <= 6 ? 'scaling phase' : 'mature scale'})<br>
-                • Peak concurrent: <strong>${users.peak_concurrent.toLocaleString()}</strong> streams<br><br>
-
-                <strong>Target $1.00 Economics (Achieved ~Month 4-6):</strong><br>
-                • <strong>Optimal Scale:</strong> 4,000-8,000 users → 320-640 peak concurrent streams<br>
-                • <strong>Server Efficiency:</strong> gen4n_mid handles 6 streams/server at $0.77/hour<br>
-                • <strong>Usage Patterns:</strong> Child-focused model (8% concurrent) with realistic daily routines<br>
-                • <strong>Key Hours:</strong> Bedtime peak (6:30-8 PM) and post-nap peak (3-5 PM)<br>
-                • <strong>Scaling Economics:</strong> Fixed storage cost ($3/month) amortized across growing user base<br><br>
-
-                <strong>Cost Evolution by Growth Phase:</strong><br>
-                • <strong>Month 1-3:</strong> $1.15-1.30/user (small scale, high per-user overhead)<br>
-                • <strong>Month 4-8:</strong> $0.90-1.00/user (optimal efficiency sweet spot)<br>
-                • <strong>Month 9-12:</strong> $0.90-0.95/user (mature scale with seasonal variations)<br><br>
-
-                <strong>Why gen4n_mid Achieves $1.00:</strong><br>
-                • <strong>Right-sized capacity:</strong> 6 streams/server matches child usage peaks<br>
-                • <strong>Cost-efficient hardware:</strong> NVIDIA T4 at $0.77/hour balances performance vs. cost<br>
-                • <strong>Child behavioral model:</strong> 8% concurrent ratio reflects realistic toddler attention patterns<br>
-                • <strong>Predictable daily patterns:</strong> Nap times (low usage) offset by bedtime peaks
-            </div>
-
-            <div style="background: #f0f8ff; padding: 15px; border-radius: 6px; border-left: 4px solid #4a90e2; margin-top: 15px;">
-                <strong>🔍 Daily Calculation Verification</strong><br><br>
-                <strong>Weekday (School Day Pattern):</strong><br>
-                <div style="font-family: monospace; background: white; padding: 10px; border-radius: 4px; margin: 8px 0;">
-                    ${generateHourlyBreakdown(costs.weekday_hours, users.peak_concurrent, costs.sessions_per_host, costs.hourly_rate, 'weekday')}
-                </div>
-                <strong>Daily Total: $${costs.monthly_totals.weekday_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong><br><br>
-
-                <strong>Weekend (Flexible Day Pattern):</strong><br>
-                <div style="font-family: monospace; background: white; padding: 10px; border-radius: 4px; margin: 8px 0;">
-                    ${generateHourlyBreakdown(costs.weekend_hours, users.peak_concurrent, costs.sessions_per_host, costs.hourly_rate, 'weekend')}
-                </div>
-                <strong>Daily Total: $${costs.monthly_totals.weekend_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong>
             </div>
         </div>
     `;
@@ -1231,7 +1262,7 @@ function generateHourlyBreakdown(hourlyData, peakConcurrent, sessionsPerHost, ho
             const cost = servers * hourlyRate;
             totalCost += cost;
 
-            breakdown += `${formatTimeEST(parseInt(hour))}: ${data.concurrent_users.toLocaleString()} users × ${multiplier.toFixed(3)} = ${servers} servers × $${hourlyRate} = $${cost.toFixed(2)}<br>`;
+            breakdown += `${formatTimeLocal(parseInt(hour))}: ${data.concurrent_users.toLocaleString()} users × ${multiplier.toFixed(3)} = ${servers} servers × $${hourlyRate} = $${cost.toFixed(2)}<br>`;
         }
     });
 
