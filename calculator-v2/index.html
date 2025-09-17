@@ -742,9 +742,11 @@
                 <div class="section">
                     <h3>🕐 Hourly Usage Patterns</h3>
                     <div class="section-description">
-                        Configure when your users are most active throughout the day. These patterns drive your infrastructure costs since you need more servers during peak hours.
+                        Configure when your users are most active throughout the day (in Eastern Time). These patterns drive your infrastructure costs since you need more servers during peak hours. Patterns are based on typical children's viewing habits and are automatically adjusted for users in different US timezones.
                         <br><br>
                         <strong>Usage Multipliers:</strong> 1.0 = 100% of peak concurrent users online, 0.5 = 50% online, 0.1 = 10% online
+                        <br><br>
+                        <strong>Research Basis:</strong> Peak times reflect common childhood routines (nap time, after-school, bedtime) but specific multiplier values should be validated with actual usage data once available.
                     </div>
 
                     <div class="pattern-legend">
@@ -758,10 +760,16 @@
                         </div>
                     </div>
                     
-                    <h5>Weekday Pattern (School Days)</h5>
+                    <h5>Weekday Pattern (School Days) - All Times in Eastern Time (EST/EDT)</h5>
+                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        <strong>Timezone Reference:</strong> Enter usage multipliers for Eastern Time hours. The calculator automatically converts these to local time for each user's timezone (Eastern 47%, Central 29%, Mountain 7%, Pacific 17%) to create staggered peak distributions.
+                    </div>
                     <div class="hourly-pattern" id="weekday_pattern"></div>
-                    
-                    <h5 style="margin-top: 20px;">Weekend Pattern (Saturday/Sunday)</h5>
+
+                    <h5 style="margin-top: 20px;">Weekend Pattern (Saturday/Sunday) - All Times in Eastern Time (EST/EDT)</h5>
+                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        <strong>Example:</strong> When you set 6 PM EST to 1.0 (peak usage), users in Pacific Time experience this peak at their local 3 PM, creating natural timezone staggering that reduces infrastructure costs.
+                    </div>
                     <div class="hourly-pattern" id="weekend_pattern"></div>
                 </div>
 
@@ -833,10 +841,11 @@
                                     • gen4n_mid: 6 streams/server at $0.77/hour<br>
                                     • Child model: 8% concurrent (realistic for ages 1.5-5)<br><br>
 
-                                    <strong>Daily Usage Peaks:</strong><br>
-                                    • Bedtime routine: 6:30-8 PM (45% peak usage)<br>
-                                    • Post-nap energy: 3-5 PM (35% peak usage)<br>
-                                    • Nap time: 1-3 PM (3% usage - cost savings)<br><br>
+                                    <strong>Daily Usage Peaks (EST Times):</strong><br>
+                                    • Bedtime routine: 6:30-8 PM EST (45% peak usage)<br>
+                                    • Post-nap energy: 3-5 PM EST (35% peak usage)<br>
+                                    • Nap time: 1-3 PM EST (3% usage - cost savings)<br>
+                                    <em>Note: Times convert to local zones automatically (6 PM EST = 3 PM PST)</em><br><br>
 
                                     <strong>Cost Evolution:</strong><br>
                                     • Month 1-3: $1.15-1.30/user (launch overhead)<br>
