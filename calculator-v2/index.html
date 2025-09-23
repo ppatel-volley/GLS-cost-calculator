@@ -285,12 +285,124 @@
             background: #f8fbff;
         }
 
+        .pattern-editor {
+            margin-bottom: 24px;
+        }
+
+        .pattern-graph {
+            width: 100%;
+            max-width: 720px;
+            height: 240px;
+            margin: 0 auto 20px auto;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            position: relative;
+        }
+
+        .pattern-graph svg {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            border-radius: 12px;
+            display: block;
+        }
+
+        .pattern-graph .graph-grid-line {
+            stroke: rgba(148, 163, 184, 0.35);
+            stroke-dasharray: 4;
+            stroke-width: 1;
+        }
+
+        .pattern-graph .graph-grid-label {
+            font-size: 10px;
+            fill: #64748b;
+            user-select: none;
+        }
+
+        .pattern-graph .graph-area {
+            fill: rgba(79, 70, 229, 0.12);
+            stroke: none;
+        }
+
+        .pattern-graph .graph-line {
+            fill: none;
+            stroke: #4f46e5;
+            stroke-width: 2.5;
+        }
+
+        .pattern-graph .graph-point {
+            fill: #ffffff;
+            stroke: #4f46e5;
+            stroke-width: 2;
+            cursor: pointer;
+            transition: stroke-width 0.15s ease, fill 0.15s ease;
+        }
+
+        .pattern-graph .graph-point:hover,
+        .pattern-graph .graph-point.active {
+            fill: #4f46e5;
+            stroke-width: 3;
+        }
+
+        .pattern-graph .graph-hour-label {
+            font-size: 10px;
+            fill: #1f2937;
+            user-select: none;
+        }
+
+        .pattern-graph .graph-tooltip {
+            position: absolute;
+            padding: 6px 8px;
+            background: rgba(17, 24, 39, 0.85);
+            color: #f8fafc;
+            font-size: 11px;
+            border-radius: 4px;
+            pointer-events: none;
+            transform: translate(-50%, -120%);
+            white-space: nowrap;
+        }
+
         .pattern-legend {
             display: flex;
             justify-content: center;
             gap: 20px;
             margin: 15px 0 10px 0;
             font-size: 0.85rem;
+        }
+
+        .metric[data-tooltip] {
+            position: relative;
+        }
+
+        .metric[data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 0;
+            bottom: 110%;
+            width: 240px;
+            max-width: 260px;
+            background: rgba(17, 24, 39, 0.9);
+            color: #f8fafc;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            line-height: 1.45;
+            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.25);
+            white-space: pre-line;
+            z-index: 5;
+        }
+
+        .metric[data-tooltip]:hover::before {
+            content: '';
+            position: absolute;
+            left: 12px;
+            bottom: 100%;
+            border-width: 6px;
+            border-style: solid;
+            border-color: rgba(17, 24, 39, 0.9) transparent transparent transparent;
+            z-index: 6;
         }
 
         .legend-item {
@@ -764,13 +876,19 @@
                     <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
                         <strong>Timezone Reference:</strong> Enter usage multipliers for Eastern Time hours. The calculator automatically converts these to local time for each user's timezone (Eastern 47%, Central 29%, Mountain 7%, Pacific 17%) to create staggered peak distributions.
                     </div>
-                    <div class="hourly-pattern" id="weekday_pattern"></div>
+                    <div class="pattern-editor">
+                        <div class="pattern-graph" id="weekday_graph"></div>
+                        <div class="hourly-pattern" id="weekday_pattern"></div>
+                    </div>
 
                     <h5 style="margin-top: 20px;">Weekend Pattern (Saturday/Sunday) - All Times in Eastern Time (EST/EDT)</h5>
                     <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
                         <strong>Example:</strong> When you set 6 PM EST to 1.0 (peak usage), users in Pacific Time experience this peak at their local 3 PM, creating natural timezone staggering that reduces infrastructure costs.
                     </div>
-                    <div class="hourly-pattern" id="weekend_pattern"></div>
+                    <div class="pattern-editor">
+                        <div class="pattern-graph" id="weekend_graph"></div>
+                        <div class="hourly-pattern" id="weekend_pattern"></div>
+                    </div>
                 </div>
 
                 <div class="section">
