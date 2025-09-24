@@ -119,12 +119,19 @@
         "hourly_rate": 0.77,
         "available_from_month": 1
       },
-      "g6n_high": {
-        "description": "NVIDIA L4 - High capacity",
+      "g4n_mid": {
+        "description": "NVIDIA T4 - High capacity",
         "sessions_per_host": 6,
         "hourly_rate": 0.77,
         "available_from_month": 1
+      },
+      "g6n_high": {
+        "description": "NVIDIA T4 - High capacity",
+        "sessions_per_host": 6,
+        "hourly_rate": 1.00,
+        "available_from_month": 1
       }
+
     },
     "capacity_planning": {
       "always_on_percentage": 0.3,

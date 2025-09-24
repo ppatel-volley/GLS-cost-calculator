@@ -208,7 +208,7 @@ const defaultConfig = {
             }
         },
         capacity_planning: {
-            always_on_percentage: 0.30,
+            always_on_percentage: 0.02,
             peak_buffer_percentage: 0.15,
             storage_cost_per_gb_month: 0.03,
             storage_gb_required: 100
@@ -216,8 +216,876 @@ const defaultConfig = {
     }
 };
 
+// Preserve generic hourly patterns for scenarios where the child model is disabled
+const genericTimePatterns = JSON.parse(JSON.stringify(defaultConfig.time_zone_patterns));
+
+function timeStringToMinutes(timeString) {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    return (hours * 60) + minutes;
+}
+
+function getCoverageFraction(timeWindow, hour) {
+    if (!timeWindow) {
+        return 0;
+    }
+
+    const [startString, endString] = timeWindow.split('-');
+    const start = timeStringToMinutes(startString);
+    const end = timeStringToMinutes(endString);
+    const hourStart = hour * 60;
+    const hourEnd = hourStart + 60;
+
+    const ranges = [];
+    if (start < end) {
+        ranges.push([start, end]);
+    } else {
+        ranges.push([start, 1440]);
+        ranges.push([0, end]);
+    }
+
+    let overlapMinutes = 0;
+    ranges.forEach(([rangeStart, rangeEnd]) => {
+        const overlapStart = Math.max(rangeStart, hourStart);
+        const overlapEnd = Math.min(rangeEnd, hourEnd);
+        if (overlapEnd > overlapStart) {
+            overlapMinutes += overlapEnd - overlapStart;
+        }
+    });
+
+    return Math.max(0, Math.min(1, overlapMinutes / 60));
+}
+
+function computeScheduleMultiplier(routine, hour) {
+    if (!routine) {
+        return 0.01;
+    }
+
+    let weightedTotal = 0;
+    let totalCoverage = 0;
+
+    Object.entries(routine).forEach(([timeWindow, details]) => {
+        const multiplier = details && details.multiplier !== undefined ? details.multiplier : 0;
+        const coverage = getCoverageFraction(timeWindow, hour);
+        if (coverage > 0) {
+            weightedTotal += multiplier * coverage;
+            totalCoverage += coverage;
+        }
+    });
+
+    if (totalCoverage === 0) {
+        return 0.01;
+    }
+
+    return weightedTotal / totalCoverage;
+}
+
+function computeAgeAdjustmentFactor(childModel) {
+    const populationModel = childModel.population_model || {};
+    const ageDistribution = populationModel.age_distribution || {};
+    const ageCohorts = childModel.age_cohorts || {};
+    const behavioralWeighting = populationModel.behavioral_weighting || {};
+
+    let numerator = 0;
+    let denominator = 0;
+
+    const cohortWeightMap = {
+        '1.5-2.5_years': behavioralWeighting.young_toddlers_weight,
+        '2.5-3.5_years': behavioralWeighting.preschoolers_weight,
+        '3.5-5_years': behavioralWeighting.pre_k_weight
+    };
+
+    Object.entries(ageDistribution).forEach(([cohortKey, share]) => {
+        if (!Number.isFinite(share) || share <= 0) {
+            return;
+        }
+
+        const cohortConfig = ageCohorts[cohortKey] || {};
+        const cohortAdjustment = Number.isFinite(cohortConfig.concurrent_ratio_adjustment) ? cohortConfig.concurrent_ratio_adjustment : 1;
+        const behaviorWeight = Number.isFinite(cohortWeightMap[cohortKey]) ? cohortWeightMap[cohortKey] : 1;
+
+        numerator += share * cohortAdjustment * behaviorWeight;
+        denominator += share * behaviorWeight;
+    });
+
+    if (denominator === 0) {
+        return 1;
+    }
+
+    return numerator / denominator;
+}
+
+const householdProfileAdjustments = {
+    daycare_routine: hour => {
+        if (hour >= 9 && hour < 16) return 0.55;
+        if (hour >= 16 && hour < 20) return 1.25;
+        return 0.9;
+    },
+    stay_at_home: hour => {
+        if (hour >= 9 && hour < 12) return 1.1;
+        if (hour >= 12 && hour < 14) return 1.0;
+        if (hour >= 14 && hour < 16) return 0.75;
+        if (hour >= 18 && hour < 21) return 1.2;
+        return 1.0;
+    },
+    mixed_schedule: hour => {
+        if (hour >= 9 && hour < 16) return 0.85;
+        if (hour >= 16 && hour < 20) return 1.15;
+        return 1.0;
+    }
+};
+
+function computeHouseholdScheduleFactor(populationModel, hour) {
+    const distribution = populationModel.household_schedule_distribution || {};
+    let weightedFactor = 0;
+    let totalShare = 0;
+
+    Object.entries(distribution).forEach(([scheduleKey, share]) => {
+        if (!Number.isFinite(share) || share <= 0) {
+            return;
+        }
+
+        const adjustmentFunction = householdProfileAdjustments[scheduleKey];
+        const factor = adjustmentFunction ? adjustmentFunction(hour) : 1.0;
+        weightedFactor += share * factor;
+        totalShare += share;
+    });
+
+    if (totalShare === 0) {
+        return 1.0;
+    }
+
+    return weightedFactor / totalShare;
+}
+
+function applyParentalStressMultipliers(value, multipliersConfig, hour) {
+    if (!multipliersConfig) {
+        return value;
+    }
+
+    let adjustedValue = value;
+
+    const applyEntries = entries => {
+        if (!entries) {
+            return;
+        }
+
+        Object.values(entries).forEach(entry => {
+            if (!entry || entry.multiplier === undefined) {
+                return;
+            }
+
+            const multiplier = entry.multiplier;
+
+            if (entry.time_windows && Array.isArray(entry.time_windows)) {
+                entry.time_windows.forEach(window => {
+                    const coverage = getCoverageFraction(window, hour);
+                    if (coverage > 0) {
+                        adjustedValue *= 1 + ((multiplier - 1) * coverage);
+                    }
+                });
+            }
+
+            if (entry.distributed) {
+                // Apply a gentle distribution across the full day
+                adjustedValue *= Math.pow(multiplier, 1 / 24);
+            }
+        });
+    };
+
+    applyEntries(multipliersConfig.high_stress_periods);
+    applyEntries(multipliersConfig.low_stress_periods);
+
+    return adjustedValue;
+}
+
+function buildChildLocalPatterns(config) {
+    const childModel = config.child_usage_model;
+    if (!childModel) {
+        return null;
+    }
+
+    const populationModel = childModel.population_model || {};
+    const ageFactor = computeAgeAdjustmentFactor(childModel);
+
+    const computeSeriesForRoutine = routine => {
+        const series = {};
+        let maxValue = 0;
+
+        for (let hour = 0; hour < 24; hour++) {
+            const baseScheduleMultiplier = computeScheduleMultiplier(routine, hour);
+            let value = baseScheduleMultiplier * ageFactor;
+            value *= computeHouseholdScheduleFactor(populationModel, hour);
+            value = applyParentalStressMultipliers(value, childModel.parental_stress_multipliers, hour);
+
+            if (!Number.isFinite(value) || value <= 0) {
+                value = 0.01;
+            }
+
+            series[hour.toString()] = value;
+            maxValue = Math.max(maxValue, value);
+        }
+
+        if (maxValue <= 0) {
+            Object.keys(series).forEach(hourKey => {
+                series[hourKey] = 0.01;
+            });
+            return series;
+        }
+
+        Object.keys(series).forEach(hourKey => {
+            const normalized = series[hourKey] / maxValue;
+            const clamped = Math.max(0.01, normalized);
+            series[hourKey] = parseFloat(clamped.toFixed(3));
+        });
+
+        return series;
+    };
+
+    const weekdayRoutine = childModel.schedule_patterns ? childModel.schedule_patterns.weekday_routine : null;
+    const weekendRoutine = childModel.schedule_patterns ? childModel.schedule_patterns.weekend_routine : null;
+
+    return {
+        weekday: computeSeriesForRoutine(weekdayRoutine),
+        weekend: computeSeriesForRoutine(weekendRoutine)
+    };
+}
+
+function applyChildPatternsToConfig(config) {
+    if (!config || !config.child_usage_model || !config.child_usage_model.enabled) {
+        return;
+    }
+
+    const computedPatterns = buildChildLocalPatterns(config);
+    if (!computedPatterns) {
+        return;
+    }
+
+    config.child_usage_model.computed_patterns = computedPatterns;
+}
+
+function getActiveHourlyPatterns(config) {
+    const childEnabled = config && config.child_usage_model && config.child_usage_model.enabled;
+    const childPatterns = childEnabled && config.child_usage_model && config.child_usage_model.computed_patterns
+        ? config.child_usage_model.computed_patterns
+        : null;
+
+    const weekdayPattern = childPatterns && childPatterns.weekday
+        ? childPatterns.weekday
+        : (config.time_zone_patterns && config.time_zone_patterns.weekday_pattern
+            ? config.time_zone_patterns.weekday_pattern.hours
+            : null);
+
+    const weekendPattern = childPatterns && childPatterns.weekend
+        ? childPatterns.weekend
+        : (config.time_zone_patterns && config.time_zone_patterns.weekend_pattern
+            ? config.time_zone_patterns.weekend_pattern.hours
+            : null);
+
+    return { weekdayPattern, weekendPattern };
+}
+
+function sumPatternValues(pattern) {
+    if (!pattern) {
+        return 0;
+    }
+
+    return Object.values(pattern).reduce((total, value) => {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue) || numericValue <= 0) {
+            return total;
+        }
+        return total + numericValue;
+    }, 0);
+}
+
+function getUsagePatternStats(config) {
+    const { weekdayPattern, weekendPattern } = getActiveHourlyPatterns(config);
+    const weekdaySum = sumPatternValues(weekdayPattern);
+    const weekendSum = sumPatternValues(weekendPattern);
+
+    const weekdaysPerMonth = 22;
+    const weekendsPerMonth = 8;
+    const totalDays = weekdaysPerMonth + weekendsPerMonth;
+
+    let weightedDailySum = 0;
+    if (totalDays > 0 && (weekdaySum > 0 || weekendSum > 0)) {
+        weightedDailySum = ((weekdaySum * weekdaysPerMonth) + (weekendSum * weekendsPerMonth)) / totalDays;
+    }
+
+    const averageHourlyMultiplier = weightedDailySum / 24;
+
+    return {
+        weekdayPattern,
+        weekendPattern,
+        weekdaySum,
+        weekendSum,
+        weightedDailySum,
+        averageHourlyMultiplier
+    };
+}
+
+function deriveMinutesFromRatio(ratio, averageHourlyMultiplier) {
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+        return 0;
+    }
+
+    if (!Number.isFinite(averageHourlyMultiplier) || averageHourlyMultiplier <= 0) {
+        return 0;
+    }
+
+    return ratio * averageHourlyMultiplier * 60 * 24;
+}
+
+function computeChildDailyMinutes(childModel) {
+    if (!childModel) {
+        return 0;
+    }
+
+    const populationModel = childModel.population_model || {};
+    const ageDistribution = populationModel.age_distribution || {};
+    const ageCohorts = childModel.age_cohorts || {};
+    const optimalSettings = populationModel.optimal_settings || {};
+    const durationCap = Number(optimalSettings.session_duration_cap_minutes);
+    const behavioralModel = childModel.behavioral_model || {};
+
+    const fallbackDuration = Number(behavioralModel.attention_span_minutes);
+    const fallbackSessions = Number(behavioralModel.session_frequency_per_day);
+
+    const applyCap = minutes => {
+        if (!Number.isFinite(minutes) || minutes <= 0) {
+            return 0;
+        }
+        if (Number.isFinite(durationCap) && durationCap > 0) {
+            return Math.min(minutes, durationCap);
+        }
+        return minutes;
+    };
+
+    let totalMinutes = 0;
+    let totalShare = 0;
+
+    Object.entries(ageDistribution).forEach(([cohortKey, shareValue]) => {
+        const share = Number(shareValue);
+        if (!Number.isFinite(share) || share <= 0) {
+            return;
+        }
+
+        const cohort = ageCohorts[cohortKey] || {};
+        let sessionMinutes = Number(cohort.session_duration_minutes);
+        if (!Number.isFinite(sessionMinutes) || sessionMinutes <= 0) {
+            sessionMinutes = fallbackDuration;
+        }
+
+        let sessionsPerDay = Number(cohort.sessions_per_day);
+        if (!Number.isFinite(sessionsPerDay) || sessionsPerDay <= 0) {
+            sessionsPerDay = fallbackSessions;
+        }
+
+        sessionMinutes = applyCap(sessionMinutes);
+
+        if (!Number.isFinite(sessionMinutes) || sessionMinutes <= 0) {
+            return;
+        }
+
+        if (!Number.isFinite(sessionsPerDay) || sessionsPerDay <= 0) {
+            return;
+        }
+
+        totalMinutes += share * sessionMinutes * sessionsPerDay;
+        totalShare += share;
+    });
+
+    if (totalShare > 0) {
+        return totalMinutes / totalShare;
+    }
+
+    const fallbackMinutes = applyCap(fallbackDuration);
+    if (!Number.isFinite(fallbackMinutes) || fallbackMinutes <= 0) {
+        return 0;
+    }
+
+    if (!Number.isFinite(fallbackSessions) || fallbackSessions <= 0) {
+        return 0;
+    }
+
+    return fallbackMinutes * fallbackSessions;
+}
+
+function computeAverageDailyMinutesPerUser(config, usageStats) {
+    const stats = usageStats || getUsagePatternStats(config);
+    const dailyPatternSum = stats.weightedDailySum;
+
+    const childEnabled = config.child_usage_model && config.child_usage_model.enabled;
+    let minutesPerUser = 0;
+
+    if (childEnabled) {
+        minutesPerUser = computeChildDailyMinutes(config.child_usage_model);
+    }
+
+    if (!Number.isFinite(minutesPerUser) || minutesPerUser <= 0) {
+        const fallbackRatio = childEnabled
+            ? ((config.child_usage_model && config.child_usage_model.behavioral_model && config.child_usage_model.behavioral_model.base_concurrent_ratio)
+                || (config.real_data_baseline && config.real_data_baseline.peak_concurrent_ratio))
+            : (config.real_data_baseline && config.real_data_baseline.peak_concurrent_ratio);
+
+        minutesPerUser = deriveMinutesFromRatio(fallbackRatio, stats.averageHourlyMultiplier);
+    }
+
+    return {
+        minutesPerUser,
+        usagePatternAverage: stats.averageHourlyMultiplier,
+        weekdaySum: stats.weekdaySum,
+        weekendSum: stats.weekendSum,
+        weightedDailySum: dailyPatternSum
+    };
+}
+
+const hourlyPatternInputs = {
+    weekday: {},
+    weekend: {}
+};
+
+const patternGraphState = {};
+let patternGraphDragState = null;
+let patternGraphHandlersAttached = false;
+
+function clamp(value, min, max) {
+    if (!Number.isFinite(value)) {
+        return min;
+    }
+    return Math.min(max, Math.max(min, value));
+}
+
+function escapeTooltipText(text) {
+    if (typeof text !== 'string') {
+        return '';
+    }
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+const daysInEachMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function getDaysInMonth(month) {
+    const index = (month - 1) % 12;
+    return daysInEachMonth[index] || 30;
+}
+
+function calculateMonthlyStreamingMinutes(userData, month) {
+    if (!userData) {
+        return null;
+    }
+
+    const perUserDailyMinutes = Number(userData.expected_daily_minutes_per_user);
+    const totalUsers = Number(userData.total_users);
+    if (!Number.isFinite(perUserDailyMinutes) || perUserDailyMinutes <= 0) {
+        return null;
+    }
+
+    if (!Number.isFinite(totalUsers) || totalUsers <= 0) {
+        return null;
+    }
+
+    const days = getDaysInMonth(month);
+    return perUserDailyMinutes * totalUsers * days;
+}
+
+function formatMinutesAsHoursMinutes(totalMinutes) {
+    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
+        return '0h 0m';
+    }
+
+    const rounded = Math.round(totalMinutes);
+    const hours = Math.floor(rounded / 60);
+    const minutes = rounded % 60;
+    const hoursText = hours.toLocaleString('en-US');
+    return `${hoursText}h ${minutes}m`;
+}
+
+function ensurePatternGraphHandlers() {
+    if (patternGraphHandlersAttached) {
+        return;
+    }
+
+    window.addEventListener('pointermove', handlePatternGraphPointerMove);
+    window.addEventListener('pointerup', handlePatternGraphPointerUp);
+    window.addEventListener('pointercancel', handlePatternGraphPointerUp);
+    patternGraphHandlersAttached = true;
+}
+
+function initializePatternGraph(patternType) {
+    ensurePatternGraphHandlers();
+
+    const container = document.getElementById(`${patternType}_graph`);
+    const inputs = hourlyPatternInputs[patternType];
+
+    if (!container || !inputs) {
+        return;
+    }
+
+    const measuredWidth = Math.max(container.clientWidth || container.offsetWidth || 0, 640);
+    const measuredHeight = Math.max(container.clientHeight || 0, 240);
+
+    container.innerHTML = '';
+
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    const width = measuredWidth;
+    const height = measuredHeight;
+    const padding = 32;
+    const plotWidth = Math.max(width - padding * 2, 1);
+    const plotHeight = Math.max(height - padding * 2, 1);
+    const step = plotWidth / 23;
+
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('width', width);
+    svg.setAttribute('height', height);
+
+    const gridGroup = document.createElementNS(svgNS, 'g');
+    for (let i = 0; i <= 4; i++) {
+        const ratio = i / 4;
+        const y = padding + ratio * plotHeight;
+        const line = document.createElementNS(svgNS, 'line');
+        line.setAttribute('x1', padding);
+        line.setAttribute('x2', width - padding);
+        line.setAttribute('y1', y);
+        line.setAttribute('y2', y);
+        line.classList.add('graph-grid-line');
+        line.setAttribute('pointer-events', 'none');
+        gridGroup.appendChild(line);
+
+        const label = document.createElementNS(svgNS, 'text');
+        label.textContent = (1 - ratio).toFixed(2);
+        label.setAttribute('x', padding - 12);
+        label.setAttribute('y', y + 4);
+        label.setAttribute('text-anchor', 'end');
+        label.classList.add('graph-grid-label');
+        label.setAttribute('pointer-events', 'none');
+        gridGroup.appendChild(label);
+    }
+
+    svg.appendChild(gridGroup);
+
+    const labelGroup = document.createElementNS(svgNS, 'g');
+    const hourLabels = [];
+    for (let hour = 0; hour < 24; hour += 2) {
+        const text = document.createElementNS(svgNS, 'text');
+        text.textContent = formatTimeLocal(hour).replace(' Local', '');
+        text.classList.add('graph-hour-label');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('pointer-events', 'none');
+        labelGroup.appendChild(text);
+        hourLabels.push({ hour, element: text });
+    }
+    svg.appendChild(labelGroup);
+
+    const area = document.createElementNS(svgNS, 'polygon');
+    area.classList.add('graph-area');
+    svg.appendChild(area);
+
+    const line = document.createElementNS(svgNS, 'polyline');
+    line.classList.add('graph-line');
+    svg.appendChild(line);
+
+    const circles = [];
+    const values = [];
+
+    for (let hour = 0; hour < 24; hour++) {
+        const input = inputs[hour];
+        let value = 0;
+        if (input) {
+            value = clamp(parseFloat(input.value), 0, 1);
+            input.value = value.toFixed(3);
+        }
+        values[hour] = value;
+
+        const point = document.createElementNS(svgNS, 'circle');
+        point.classList.add('graph-point');
+        point.dataset.hour = hour.toString();
+        point.setAttribute('r', '6');
+        circles.push(point);
+        svg.appendChild(point);
+    }
+
+    svg.addEventListener('pointerdown', event => {
+        const pointerType = event.pointerType || 'mouse';
+        if (pointerType === 'mouse' && event.button !== 0) {
+            return;
+        }
+        const datasetHour = event.target && event.target.dataset ? Number(event.target.dataset.hour) : NaN;
+        const forcedHour = Number.isFinite(datasetHour) ? datasetHour : undefined;
+        handlePatternGraphPointerDown(patternType, event, forcedHour);
+    });
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'graph-tooltip';
+    tooltip.style.display = 'none';
+
+    container.appendChild(svg);
+    container.appendChild(tooltip);
+
+    patternGraphState[patternType] = {
+        svg,
+        area,
+        line,
+        circles,
+        values,
+        inputs,
+        width,
+        height,
+        padding,
+        plotWidth,
+        plotHeight,
+        step,
+        tooltip,
+        hourLabels,
+        activeHour: null
+    };
+
+    updatePatternGraphVisual(patternType);
+}
+
+function refreshPatternGraph(patternType) {
+    const inputs = hourlyPatternInputs[patternType];
+    if (!inputs) {
+        return;
+    }
+
+    if (!patternGraphState[patternType]) {
+        initializePatternGraph(patternType);
+    }
+
+    const state = patternGraphState[patternType];
+    if (!state) {
+        return;
+    }
+
+    for (let hour = 0; hour < 24; hour++) {
+        const input = inputs[hour];
+        if (!input) {
+            continue;
+        }
+        let value = clamp(parseFloat(input.value), 0, 1);
+        input.value = value.toFixed(3);
+        state.values[hour] = value;
+    }
+
+    updatePatternGraphVisual(patternType);
+}
+
+function updatePatternGraphValue(patternType, hour, value) {
+    const state = patternGraphState[patternType];
+    if (!state) {
+        return 0;
+    }
+
+    const normalized = clamp(value, 0, 1);
+    state.values[hour] = normalized;
+
+    const input = state.inputs ? state.inputs[hour] : null;
+    if (input) {
+        input.value = normalized.toFixed(3);
+    }
+
+    updatePatternGraphVisual(patternType);
+    return normalized;
+}
+
+function updatePatternGraphVisual(patternType) {
+    const state = patternGraphState[patternType];
+    if (!state) {
+        return;
+    }
+
+    const { values, area, line, circles, width, padding, plotWidth, plotHeight, hourLabels, step } = state;
+    const bottomY = padding + plotHeight;
+    const pointStrings = [];
+
+    for (let hour = 0; hour < values.length; hour++) {
+        const x = padding + (hour * step);
+        const y = padding + (1 - values[hour]) * plotHeight;
+        pointStrings.push(`${x},${y}`);
+        const circle = circles[hour];
+        if (circle) {
+            circle.setAttribute('cx', x);
+            circle.setAttribute('cy', y);
+        }
+    }
+
+    if (line) {
+        line.setAttribute('points', pointStrings.join(' '));
+    }
+
+    if (area) {
+        const areaPoints = [`${padding},${bottomY}`, ...pointStrings, `${padding + plotWidth},${bottomY}`];
+        area.setAttribute('points', areaPoints.join(' '));
+    }
+
+    if (hourLabels) {
+        hourLabels.forEach(({ hour, element }) => {
+            const x = padding + (hour * step);
+            const y = bottomY + 16;
+            element.setAttribute('x', x);
+            element.setAttribute('y', y);
+        });
+    }
+}
+
+function resolvePatternGraphCoordinates(state, event) {
+    const rect = state.svg.getBoundingClientRect();
+    const x = clamp(event.clientX - rect.left, state.padding, state.width - state.padding);
+    const y = clamp(event.clientY - rect.top, state.padding, state.height - state.padding);
+    const relativeX = (x - state.padding) / state.plotWidth;
+    const hourFloat = relativeX * 23;
+    const normalizedValue = 1 - ((y - state.padding) / state.plotHeight);
+
+    return {
+        hourFloat,
+        value: clamp(normalizedValue, 0, 1)
+    };
+}
+
+function handlePatternGraphPointerDown(patternType, event, forcedHour) {
+    const state = patternGraphState[patternType];
+    if (!state) {
+        return;
+    }
+
+    event.preventDefault();
+
+    const coords = resolvePatternGraphCoordinates(state, event);
+    const targetHour = typeof forcedHour === 'number' ? forcedHour : clamp(Math.round(coords.hourFloat), 0, 23);
+
+    patternGraphDragState = {
+        patternType,
+        hour: targetHour,
+        pointerId: event.pointerId
+    };
+
+    try {
+        state.svg.setPointerCapture(event.pointerId);
+    } catch (error) {
+        // Ignore capture errors in unsupported browsers
+    }
+
+    setActiveGraphPoint(patternType, targetHour);
+    const normalized = updatePatternGraphValue(patternType, targetHour, coords.value);
+    showPatternGraphTooltip(patternType, targetHour, normalized);
+}
+
+function handlePatternGraphPointerMove(event) {
+    if (!patternGraphDragState || patternGraphDragState.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const state = patternGraphState[patternGraphDragState.patternType];
+    if (!state) {
+        return;
+    }
+
+    const coords = resolvePatternGraphCoordinates(state, event);
+    const normalized = updatePatternGraphValue(patternGraphDragState.patternType, patternGraphDragState.hour, coords.value);
+    showPatternGraphTooltip(patternGraphDragState.patternType, patternGraphDragState.hour, normalized);
+}
+
+function handlePatternGraphPointerUp(event) {
+    if (!patternGraphDragState || patternGraphDragState.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const state = patternGraphState[patternGraphDragState.patternType];
+    if (state && state.svg) {
+        try {
+            state.svg.releasePointerCapture(event.pointerId);
+        } catch (error) {
+            // Ignore release errors
+        }
+    }
+
+    hidePatternGraphTooltip(patternGraphDragState.patternType);
+    clearActiveGraphPoint(patternGraphDragState.patternType);
+    patternGraphDragState = null;
+}
+
+function setActiveGraphPoint(patternType, hour) {
+    const state = patternGraphState[patternType];
+    if (!state) {
+        return;
+    }
+
+    if (typeof state.activeHour === 'number' && state.circles[state.activeHour]) {
+        state.circles[state.activeHour].classList.remove('active');
+    }
+
+    state.activeHour = hour;
+    if (state.circles[hour]) {
+        state.circles[hour].classList.add('active');
+    }
+}
+
+function clearActiveGraphPoint(patternType) {
+    const state = patternGraphState[patternType];
+    if (!state) {
+        return;
+    }
+
+    if (typeof state.activeHour === 'number' && state.circles[state.activeHour]) {
+        state.circles[state.activeHour].classList.remove('active');
+    }
+    state.activeHour = null;
+}
+
+function showPatternGraphTooltip(patternType, hour, value) {
+    const state = patternGraphState[patternType];
+    if (!state || !state.tooltip) {
+        return;
+    }
+
+    const tooltip = state.tooltip;
+    tooltip.style.display = 'block';
+    const timeLabel = formatTimeLocal(hour).replace(' Local', '');
+    tooltip.textContent = `${timeLabel} • ${value.toFixed(2)}`;
+
+    const x = state.padding + (hour * state.step);
+    const y = state.padding + (1 - value) * state.plotHeight;
+    tooltip.style.left = `${(x / state.width) * 100}%`;
+    tooltip.style.top = `${(y / state.height) * 100}%`;
+}
+
+function hidePatternGraphTooltip(patternType) {
+    const state = patternGraphState[patternType];
+    if (!state || !state.tooltip) {
+        return;
+    }
+
+    state.tooltip.style.display = 'none';
+}
+
 let currentResults = null;
 let currentMonth = 1;
+let currentConfig = null;
+
+async function loadInstanceTypesFromConfig() {
+    try {
+        const response = await fetch('config.json', { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const externalConfig = await response.json();
+        if (externalConfig &&
+            externalConfig.infrastructure_specs &&
+            externalConfig.infrastructure_specs.instance_types) {
+
+            defaultConfig.infrastructure_specs.instance_types = externalConfig.infrastructure_specs.instance_types;
+        }
+    } catch (error) {
+        console.warn('Unable to load instance types from config.json:', error.message);
+    }
+}
 
 // Time formatting function
 function formatTimeLocal(hour) {
@@ -242,7 +1110,10 @@ function isPeakHour(hour, isWeekend) {
 }
 
 // Initialize the interface
-function initializeInterface() {
+async function initializeInterface() {
+    await loadInstanceTypesFromConfig();
+    applyChildPatternsToConfig(defaultConfig);
+
     // First, load any saved configuration from previous session
     const hadSavedConfig = loadSavedConfig();
 
@@ -291,16 +1162,22 @@ function loadDefaultValues() {
     document.getElementById('peak_concurrent_ratio').value = defaultConfig.real_data_baseline.peak_concurrent_ratio;
     document.getElementById('monthly_growth_rate').value = defaultConfig.growth_assumptions.monthly_growth_rate;
     document.getElementById('user_retention_rate').value = defaultConfig.marketing_acquisition.retention_curve.month_1;
-    
+
+    const childModelSelect = document.getElementById('child_model_enabled');
+    if (childModelSelect) {
+        const enabled = defaultConfig.child_usage_model && defaultConfig.child_usage_model.enabled;
+        childModelSelect.value = enabled ? 'true' : 'false';
+    }
+
     // Marketing acquisition values are now fixed at 1.0 (simplified model)
-    
+
     // Load monthly targets
     for (let month = 1; month <= 12; month++) {
         const targetKey = `month_${month}`;
         const targetValue = defaultConfig.marketing_acquisition.new_user_monthly_targets[targetKey];
         document.getElementById(`target_month_${month}`).value = targetValue;
     }
-    
+
     // Load capacity planning
     document.getElementById('peak_buffer_percentage').value = defaultConfig.infrastructure_specs.capacity_planning.peak_buffer_percentage;
     document.getElementById('storage_gb_required').value = defaultConfig.infrastructure_specs.capacity_planning.storage_gb_required;
@@ -330,6 +1207,10 @@ function loadDefaultValues() {
     // Update display values and set up event listeners
     updateDisplayValues();
     setupEventListeners();
+
+    if (childModelSelect) {
+        updateHourlyPatternInputs(childModelSelect.value === 'true');
+    }
 }
 
 function updateDisplayValues() {
@@ -362,66 +1243,127 @@ function createHourlyPatternInputs() {
     let weekdayDefaults = defaultConfig.time_zone_patterns.weekday_pattern.hours;
     let weekendDefaults = defaultConfig.time_zone_patterns.weekend_pattern.hours;
 
-    // Create weekday pattern inputs
+    if (defaultConfig.child_usage_model && defaultConfig.child_usage_model.enabled && defaultConfig.child_usage_model.computed_patterns) {
+        weekdayDefaults = defaultConfig.child_usage_model.computed_patterns.weekday;
+        weekendDefaults = defaultConfig.child_usage_model.computed_patterns.weekend;
+    }
+
     const weekdayContainer = document.getElementById('weekday_pattern');
+    const weekendContainer = document.getElementById('weekend_pattern');
+
+    if (!weekdayContainer || !weekendContainer) {
+        return;
+    }
+
+    weekdayContainer.innerHTML = '';
+    weekendContainer.innerHTML = '';
+
+    hourlyPatternInputs.weekday = {};
+    hourlyPatternInputs.weekend = {};
+
     for (let hour = 0; hour < 24; hour++) {
-        const div = document.createElement('div');
-        div.className = 'hour-block';
+        const weekdayBlock = document.createElement('div');
+        weekdayBlock.className = 'hour-block';
 
-        const isPeak = isPeakHour(hour, false);
-        const labelClass = isPeak ? 'hour-label peak' : 'hour-label off-peak';
-        const inputClass = isPeak ? 'hourly-input peak' : 'hourly-input off-peak';
+        const isWeekdayPeak = isPeakHour(hour, false);
+        const weekdayLabelClass = isWeekdayPeak ? 'hour-label peak' : 'hour-label off-peak';
+        const weekdayInputClass = isWeekdayPeak ? 'hourly-input peak' : 'hourly-input off-peak';
 
-        div.innerHTML = `
-            <div class="${labelClass}">${formatTimeLocal(hour)}</div>
-            <input type="number" class="${inputClass}" id="weekday_${hour}"
-                   value="${weekdayDefaults[hour.toString()]}"
+        const weekdayRawValue = Number(weekdayDefaults[hour.toString()]);
+        const weekdaySafeValue = clamp(Number.isFinite(weekdayRawValue) ? weekdayRawValue : 0.01, 0, 1);
+
+        weekdayBlock.innerHTML = `
+            <div class="${weekdayLabelClass}">${formatTimeLocal(hour)}</div>
+            <input type="number" class="${weekdayInputClass}" id="weekday_${hour}"
+                   value="${weekdaySafeValue.toFixed(3)}"
                    min="0" max="1" step="0.001" title="Local time usage multiplier for ${formatTimeLocal(hour)} on weekdays">
         `;
-        weekdayContainer.appendChild(div);
+
+        const weekdayInput = weekdayBlock.querySelector('input');
+        hourlyPatternInputs.weekday[hour] = weekdayInput;
+        weekdayInput.addEventListener('input', () => {
+            let value = parseFloat(weekdayInput.value);
+            value = clamp(Number.isFinite(value) ? value : 0, 0, 1);
+            weekdayInput.value = value.toFixed(3);
+            updatePatternGraphValue('weekday', hour, value);
+        });
+
+        weekdayContainer.appendChild(weekdayBlock);
     }
 
-    // Create weekend pattern inputs
-    const weekendContainer = document.getElementById('weekend_pattern');
     for (let hour = 0; hour < 24; hour++) {
-        const div = document.createElement('div');
-        div.className = 'hour-block';
+        const weekendBlock = document.createElement('div');
+        weekendBlock.className = 'hour-block';
 
-        const isPeak = isPeakHour(hour, true);
-        const labelClass = isPeak ? 'hour-label peak' : 'hour-label off-peak';
-        const inputClass = isPeak ? 'hourly-input peak' : 'hourly-input off-peak';
+        const isWeekendPeak = isPeakHour(hour, true);
+        const weekendLabelClass = isWeekendPeak ? 'hour-label peak' : 'hour-label off-peak';
+        const weekendInputClass = isWeekendPeak ? 'hourly-input peak' : 'hourly-input off-peak';
 
-        div.innerHTML = `
-            <div class="${labelClass}">${formatTimeLocal(hour)}</div>
-            <input type="number" class="${inputClass}" id="weekend_${hour}"
-                   value="${weekendDefaults[hour.toString()]}"
+        const weekendRawValue = Number(weekendDefaults[hour.toString()]);
+        const weekendSafeValue = clamp(Number.isFinite(weekendRawValue) ? weekendRawValue : 0.01, 0, 1);
+
+        weekendBlock.innerHTML = `
+            <div class="${weekendLabelClass}">${formatTimeLocal(hour)}</div>
+            <input type="number" class="${weekendInputClass}" id="weekend_${hour}"
+                   value="${weekendSafeValue.toFixed(3)}"
                    min="0" max="1" step="0.001" title="Local time usage multiplier for ${formatTimeLocal(hour)} on weekends">
         `;
-        weekendContainer.appendChild(div);
+
+        const weekendInput = weekendBlock.querySelector('input');
+        hourlyPatternInputs.weekend[hour] = weekendInput;
+        weekendInput.addEventListener('input', () => {
+            let value = parseFloat(weekendInput.value);
+            value = clamp(Number.isFinite(value) ? value : 0, 0, 1);
+            weekendInput.value = value.toFixed(3);
+            updatePatternGraphValue('weekend', hour, value);
+        });
+
+        weekendContainer.appendChild(weekendBlock);
     }
+
+    initializePatternGraph('weekday');
+    initializePatternGraph('weekend');
 }
 
 function updateHourlyPatternInputs(useChildModel) {
-    // Both models now use the same local-time pattern defaults
-    // The model type only affects concurrent ratio (8% vs 10%) and timezone awareness
+    const activeConfig = currentConfig || defaultConfig;
 
-    // Update weekday pattern inputs with local-time defaults
+    if (useChildModel) {
+        applyChildPatternsToConfig(activeConfig);
+    }
+
+    const childPatterns = activeConfig.child_usage_model && activeConfig.child_usage_model.computed_patterns
+        ? activeConfig.child_usage_model.computed_patterns
+        : null;
+
+    const weekdayPatternValues = useChildModel && childPatterns
+        ? childPatterns.weekday
+        : genericTimePatterns.weekday_pattern.hours;
+
+    const weekendPatternValues = useChildModel && childPatterns
+        ? childPatterns.weekend
+        : genericTimePatterns.weekend_pattern.hours;
+
     for (let hour = 0; hour < 24; hour++) {
-        const input = document.getElementById(`weekday_${hour}`);
-        if (input) {
-            const newValue = defaultConfig.time_zone_patterns.weekday_pattern.hours[hour.toString()];
-            input.value = newValue.toFixed(3);
+        const weekdayInput = document.getElementById(`weekday_${hour}`);
+        if (weekdayInput && weekdayPatternValues) {
+            const value = weekdayPatternValues[hour.toString()];
+            const numericValue = Number(value);
+            const safeValue = Number.isFinite(numericValue) ? numericValue : 0.01;
+            weekdayInput.value = safeValue.toFixed(3);
+        }
+
+        const weekendInput = document.getElementById(`weekend_${hour}`);
+        if (weekendInput && weekendPatternValues) {
+            const value = weekendPatternValues[hour.toString()];
+            const numericValue = Number(value);
+            const safeValue = Number.isFinite(numericValue) ? numericValue : 0.01;
+            weekendInput.value = safeValue.toFixed(3);
         }
     }
 
-    // Update weekend pattern inputs with local-time defaults
-    for (let hour = 0; hour < 24; hour++) {
-        const input = document.getElementById(`weekend_${hour}`);
-        if (input) {
-            const newValue = defaultConfig.time_zone_patterns.weekend_pattern.hours[hour.toString()];
-            input.value = newValue.toFixed(3);
-        }
-    }
+    refreshPatternGraph('weekday');
+    refreshPatternGraph('weekend');
 }
 
 function createMonthTabs() {
@@ -438,7 +1380,7 @@ function createMonthTabs() {
 
 function selectMonth(month) {
     currentMonth = month;
-    
+
     // Update tab styling
     document.querySelectorAll('.month-tab').forEach((tab, index) => {
         tab.classList.toggle('active', index + 1 === month);
@@ -481,9 +1423,9 @@ function gatherConfiguration() {
 
     config.growth_assumptions.monthly_growth_rate = parseFloat(document.getElementById('monthly_growth_rate').value);
     config.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
-    
+
     // Marketing acquisition values are fixed at 1.0 (simplified model - no UI controls needed)
-    
+
     // Update monthly targets
     for (let month = 1; month <= 12; month++) {
         const targetKey = `month_${month}`;
@@ -496,10 +1438,14 @@ function gatherConfiguration() {
     config.infrastructure_specs.capacity_planning.storage_gb_required = parseInt(document.getElementById('storage_gb_required').value);
     config.infrastructure_specs.capacity_planning.storage_cost_per_gb_month = parseFloat(document.getElementById('storage_cost_per_gb_month').value);
 
-    // Update hourly patterns
+    const userWeekdayPattern = {};
+    const userWeekendPattern = {};
+
     for (let hour = 0; hour < 24; hour++) {
         const weekdayValue = parseFloat(document.getElementById(`weekday_${hour}`).value);
         const weekendValue = parseFloat(document.getElementById(`weekend_${hour}`).value);
+        userWeekdayPattern[hour.toString()] = weekdayValue;
+        userWeekendPattern[hour.toString()] = weekendValue;
         config.time_zone_patterns.weekday_pattern.hours[hour.toString()] = weekdayValue;
         config.time_zone_patterns.weekend_pattern.hours[hour.toString()] = weekendValue;
     }
@@ -518,6 +1464,53 @@ function gatherConfiguration() {
             "mountain": { "percentage": mountain, "utc_offset": -7 },
             "pacific": { "percentage": pacific, "utc_offset": -8 }
         };
+
+        applyChildPatternsToConfig(config);
+
+        const computedPatterns = config.child_usage_model.computed_patterns || {};
+        const computedWeekday = computedPatterns.weekday || {};
+        const computedWeekend = computedPatterns.weekend || {};
+
+        const normalizedWeekday = {};
+        const normalizedWeekend = {};
+        let maxWeekday = 0;
+        let maxWeekend = 0;
+
+        for (let hour = 0; hour < 24; hour++) {
+            const key = hour.toString();
+            const fallbackWeekday = Number(computedWeekday[key]) || 0.01;
+            const fallbackWeekend = Number(computedWeekend[key]) || 0.01;
+
+            const userWeekday = Number(userWeekdayPattern[key]);
+            const userWeekend = Number(userWeekendPattern[key]);
+
+            const chosenWeekday = Number.isFinite(userWeekday) && userWeekday > 0 ? userWeekday : fallbackWeekday;
+            const chosenWeekend = Number.isFinite(userWeekend) && userWeekend > 0 ? userWeekend : fallbackWeekend;
+
+            normalizedWeekday[key] = chosenWeekday;
+            normalizedWeekend[key] = chosenWeekend;
+
+            maxWeekday = Math.max(maxWeekday, chosenWeekday);
+            maxWeekend = Math.max(maxWeekend, chosenWeekend);
+        }
+
+        const normalizeSeries = (series, fallbackSeries, maxValue) => {
+            if (!Number.isFinite(maxValue) || maxValue <= 0) {
+                return Object.assign({}, fallbackSeries);
+            }
+
+            const result = {};
+            Object.entries(series).forEach(([hourKey, value]) => {
+                const numericValue = Number(value);
+                const normalized = numericValue / maxValue;
+                const safeValue = Number.isFinite(normalized) && normalized > 0 ? normalized : (fallbackSeries[hourKey] || 0.01);
+                result[hourKey] = parseFloat(safeValue.toFixed(3));
+            });
+            return result;
+        };
+
+        config.time_zone_patterns.weekday_pattern.hours = normalizeSeries(normalizedWeekday, computedWeekday, maxWeekday);
+        config.time_zone_patterns.weekend_pattern.hours = normalizeSeries(normalizedWeekend, computedWeekend, maxWeekend);
     }
 
     // Instance configuration is now fixed (gen4n_mid only)
@@ -533,6 +1526,7 @@ function calculateResults() {
         saveConfigToFile(config);
 
         const results = runCalculations(config);
+        currentConfig = config;
         currentResults = results;
         displayResults(results);
     } catch (error) {
@@ -603,6 +1597,8 @@ function autoSaveConfig() {
                     "pacific": { "percentage": pacific, "utc_offset": -8 }
                 };
             }
+
+            applyChildPatternsToConfig(currentConfig);
         } else {
             // Generic model uses 10% concurrent ratio
             currentConfig.real_data_baseline.peak_concurrent_ratio = 0.10;
@@ -645,9 +1641,28 @@ function loadSavedConfig() {
         const savedConfig = localStorage.getItem('cocomelon-calculator-config');
         if (savedConfig) {
             const parsedConfig = JSON.parse(savedConfig);
+            const externalInstanceTypes = defaultConfig.infrastructure_specs
+                ? defaultConfig.infrastructure_specs.instance_types
+                : null;
 
             // Merge saved config with default config
             Object.assign(defaultConfig, parsedConfig);
+
+            if (!defaultConfig.infrastructure_specs) {
+                defaultConfig.infrastructure_specs = {};
+            }
+
+            if (externalInstanceTypes) {
+                defaultConfig.infrastructure_specs.instance_types = externalInstanceTypes;
+            }
+
+            if (parsedConfig.time_zone_patterns && parsedConfig.time_zone_patterns.weekday_pattern && parsedConfig.time_zone_patterns.weekday_pattern.hours) {
+                genericTimePatterns.weekday_pattern.hours = Object.assign({}, parsedConfig.time_zone_patterns.weekday_pattern.hours);
+            }
+            if (parsedConfig.time_zone_patterns && parsedConfig.time_zone_patterns.weekend_pattern && parsedConfig.time_zone_patterns.weekend_pattern.hours) {
+                genericTimePatterns.weekend_pattern.hours = Object.assign({}, parsedConfig.time_zone_patterns.weekend_pattern.hours);
+            }
+            applyChildPatternsToConfig(defaultConfig);
 
             console.log('📂 Loaded saved configuration from previous session');
             return true;
@@ -664,12 +1679,12 @@ function runCalculations(config) {
 
     // Calculate monthly users
     const monthlyUsers = calculateMonthlyUsers(config);
-    
+
     // Calculate costs for each month
     for (let month = 1; month <= 12; month++) {
         const users = monthlyUsers[month];
         const costs = calculateHourlyCosts(month, users, config);
-        
+
         results[month] = {
             users: users,
             costs: costs
@@ -679,90 +1694,143 @@ function runCalculations(config) {
     return results;
 }
 
+function getRetentionFactorForAge(age, retentionCurve, defaultRetention) {
+    if (age <= 0) return 1;
+    if (age === 1 && retentionCurve.month_1 !== undefined) return retentionCurve.month_1;
+    if (age === 2 && retentionCurve.month_2 !== undefined) return retentionCurve.month_2;
+    if (age === 3 && retentionCurve.month_3 !== undefined) return retentionCurve.month_3;
+    if (retentionCurve.steady_state !== undefined) return retentionCurve.steady_state;
+    return defaultRetention !== undefined ? defaultRetention : 1;
+}
+
+function applyRetentionToCohorts(cohorts, retentionCurve, defaultRetention) {
+    let retainedUsers = 0;
+
+    for (let index = cohorts.length - 1; index >= 0; index--) {
+        const cohort = cohorts[index];
+        cohort.age += 1;
+
+        const retentionFactor = getRetentionFactorForAge(cohort.age, retentionCurve, defaultRetention);
+        cohort.size *= retentionFactor;
+
+        if (cohort.size < 1) {
+            cohorts.splice(index, 1);
+            continue;
+        }
+
+        retainedUsers += cohort.size;
+    }
+
+    return retainedUsers;
+}
+
 function calculateMonthlyUsers(config) {
     const baseline = config.real_data_baseline;
     const growth = config.growth_assumptions;
     const marketing = config.marketing_acquisition;
     const seasonalMultipliers = growth.seasonal_multipliers;
-    
+
     const monthlyData = {};
     const monthNames = Object.keys(seasonalMultipliers);
-    let cumulativeUsers = 0;
-    
+    const cohorts = [];
+    const retentionCurve = marketing.retention_curve || {};
+    const defaultRetention = growth.existing_user_retention;
+    const childModelEnabled = config.child_usage_model && config.child_usage_model.enabled;
+    const childPeakRatio = childModelEnabled
+        ? (config.child_usage_model.behavioral_model.base_concurrent_ratio || baseline.peak_concurrent_ratio)
+        : baseline.peak_concurrent_ratio;
+
+    const usageStats = getUsagePatternStats(config);
+    const { minutesPerUser: averageDailyMinutesPerUser, usagePatternAverage: averageHourlyMultiplier, weightedDailySum } = computeAverageDailyMinutesPerUser(config, usageStats);
+    const derivedPeakRatio = (Number.isFinite(averageDailyMinutesPerUser) && averageDailyMinutesPerUser > 0 &&
+        Number.isFinite(weightedDailySum) && weightedDailySum > 0)
+        ? (averageDailyMinutesPerUser / (60 * weightedDailySum))
+        : null;
+
     for (let month = 1; month <= 12; month++) {
-        let monthUsers;
-        
+        const targetKey = `month_${month}`;
+        const marketingNewUsers = marketing.new_user_monthly_targets[targetKey] || 0;
+
+        let retainedUsers = 0;
+        let organicGrowth = 0;
+
+        if (month > 1) {
+            retainedUsers = applyRetentionToCohorts(cohorts, retentionCurve, defaultRetention);
+        }
+
+        let activeUsers = retainedUsers;
+
         if (month === 1) {
-            // Month 1: Apply household filter to starting DAU + first month's marketing targets
             const existingCocomelon = baseline.current_dau * baseline.household_percentage;
-            const targetKey = `month_${month}`;
-            const newUsers = marketing.new_user_monthly_targets[targetKey] || 0;
-            
-            monthUsers = existingCocomelon + newUsers;
-            cumulativeUsers = monthUsers;
+            if (existingCocomelon > 0) {
+                cohorts.push({ size: existingCocomelon, age: 0, label: 'baseline_households' });
+                activeUsers += existingCocomelon;
+            }
         } else {
-            // Month 2+: Previous users (with churn applied) + new marketing acquisitions
-            const previousMonth = monthlyData[month - 1];
-            const retention = marketing.retention_curve.month_1; // Apply churn rate to all users
-            const retainedUsers = previousMonth.base_users_before_seasonal * retention;
-            
-            const targetKey = `month_${month}`;
-            const newUsers = marketing.new_user_monthly_targets[targetKey] || 0;
-            
-            monthUsers = retainedUsers + newUsers;
+            organicGrowth = retainedUsers * growth.monthly_growth_rate;
+            if (organicGrowth > 0) {
+                cohorts.push({ size: organicGrowth, age: 0, label: `organic_growth_m${month}` });
+                activeUsers += organicGrowth;
+            }
         }
-        
-        // Apply seasonal adjustment
+
+        if (marketingNewUsers > 0) {
+            cohorts.push({ size: marketingNewUsers, age: 0, label: `marketing_m${month}` });
+            activeUsers += marketingNewUsers;
+        }
+
         const seasonalMonth = monthNames[(month - 1) % 12];
-        const seasonalMultiplier = seasonalMultipliers[seasonalMonth];
-        const adjustedUsers = monthUsers * seasonalMultiplier;
-        
-        // Calculate concurrent users using child model if enabled
-        let peakConcurrent;
-        if (config.child_usage_model && config.child_usage_model.enabled) {
-            // Use child model base concurrent ratio
-            peakConcurrent = adjustedUsers * config.child_usage_model.behavioral_model.base_concurrent_ratio;
-        } else {
-            // Use generic model
-            peakConcurrent = adjustedUsers * baseline.peak_concurrent_ratio;
+        const seasonalMultiplier = seasonalMultipliers[seasonalMonth] || 1;
+        const adjustedUsers = activeUsers * seasonalMultiplier;
+
+        let peakRatioForMonth = derivedPeakRatio;
+        if (!Number.isFinite(peakRatioForMonth) || peakRatioForMonth <= 0) {
+            peakRatioForMonth = childPeakRatio;
         }
-        
+
+        const peakConcurrentExact = adjustedUsers * peakRatioForMonth;
+
         monthlyData[month] = {
             total_users: Math.floor(adjustedUsers),
-            peak_concurrent: Math.floor(peakConcurrent),
+            peak_concurrent: Math.ceil(peakConcurrentExact),
+            peak_concurrent_exact: peakConcurrentExact,
+            peak_concurrent_ratio: peakRatioForMonth,
             seasonal_multiplier: seasonalMultiplier,
             is_month_1: month === 1,
-            base_users_before_seasonal: Math.floor(monthUsers),
+            base_users_before_seasonal: Math.floor(activeUsers),
+            retained_users: Math.floor(retainedUsers),
+            expected_daily_minutes_per_user: averageDailyMinutesPerUser,
             marketing_details: {
-                new_users: marketing.new_user_monthly_targets[`month_${month}`] || 0
+                new_users: marketingNewUsers,
+                organic_growth: Math.floor(organicGrowth)
             }
         };
     }
-    
+
     return monthlyData;
 }
 
 function getOptimalInstanceType(month, config) {
     const instances = config.infrastructure_specs.instance_types;
     const availableTypes = [];
-    
+
     for (const [name, specs] of Object.entries(instances)) {
         if (month >= specs.available_from_month) {
             availableTypes.push([name, specs]);
         }
     }
-    
+
     if (availableTypes.length === 0) {
         throw new Error(`No instance types available for month ${month}`);
     }
-    
+
     // Choose most cost-efficient (best sessions per dollar)
     const bestType = availableTypes.reduce((best, current) => {
         const bestEfficiency = best[1].sessions_per_host / best[1].hourly_rate;
         const currentEfficiency = current[1].sessions_per_host / current[1].hourly_rate;
         return currentEfficiency > bestEfficiency ? current : best;
     });
-    
+
     return bestType[0];
 }
 
@@ -808,10 +1876,10 @@ function calculateChildUsageMultiplier(hour, isWeekend, config) {
     let weightedMultiplier = 0;
 
     // Calculate weighted average across all timezones
-    for (const [zoneName, zoneData] of Object.entries(timezoneDistribution)) {
+    for (const [, zoneData] of Object.entries(timezoneDistribution)) {
         // Convert EST hour to local time for this timezone
         // EST is UTC-5, so we need to adjust by the difference in UTC offsets
-        const hourOffset = zoneData.utc_offset - (-5); // Difference from EST (UTC-5)
+        const hourOffset = (-5) - zoneData.utc_offset; // EST(UTC-5) to target timezone
         const localHour = (hour + hourOffset + 24) % 24; // Ensure positive hour
 
         // Get the multiplier for this timezone's local hour
@@ -824,32 +1892,39 @@ function calculateChildUsageMultiplier(hour, isWeekend, config) {
     return weightedMultiplier;
 }
 
-function calculateTimezoneAwareMultiplier(estHour, isWeekend, localTimePattern, config) {
+function calculateTimezoneAwareMultiplier(estHour, localTimePattern, config) {
     // Apply user's local-time patterns across all timezones
     // localTimePattern represents universal local time behavior (17:00 = 5 PM local anywhere)
 
     const timezoneDistribution = config.child_usage_model.timezone_awareness.timezone_distribution;
     let weightedMultiplier = 0;
+    let weightTotal = 0;
 
-    // Calculate weighted average across all timezones
-    for (const [zoneName, zoneData] of Object.entries(timezoneDistribution)) {
-        // Convert EST hour to local time for this timezone
-        const hourOffset = zoneData.utc_offset - (-5); // Difference from EST (UTC-5)
-        const localHour = (estHour + hourOffset + 24) % 24; // Ensure positive hour
+    Object.values(timezoneDistribution).forEach(zoneData => {
+        const weight = zoneData.percentage !== undefined ? zoneData.percentage : (zoneData.share || 0);
+        const offset = zoneData.utc_offset !== undefined ? zoneData.utc_offset : (zoneData.offset || -5);
+        if (!Number.isFinite(weight) || weight <= 0) {
+            return;
+        }
 
-        // Get the multiplier for this timezone's local hour using user's pattern
+        const localHour = (estHour + ((-5) - offset) + 24) % 24;
         const multiplier = localTimePattern[localHour.toString()] || 0;
 
-        // Add weighted contribution to total
-        weightedMultiplier += zoneData.percentage * multiplier;
+        weightedMultiplier += weight * multiplier;
+        weightTotal += weight;
+    });
+
+    if (weightTotal === 0) {
+        return localTimePattern[estHour.toString()] || 0;
     }
 
-    return weightedMultiplier;
+    return weightedMultiplier / weightTotal;
 }
 
 function calculateHourlyCosts(month, monthlyUsers, config) {
     const totalUsers = monthlyUsers.total_users;
-    const peakConcurrent = monthlyUsers.peak_concurrent;
+    const peakConcurrent = monthlyUsers.peak_concurrent_exact !== undefined ?
+        monthlyUsers.peak_concurrent_exact : monthlyUsers.peak_concurrent;
 
     // Get optimal instance type
     const instanceType = getOptimalInstanceType(month, config);
@@ -861,13 +1936,44 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
     // Always use user's hourly pattern inputs regardless of model type
     // The model type only affects what default patterns are loaded into the inputs
     // IMPORTANT: These patterns represent LOCAL TIME behavior (17:00 = 5 PM local anywhere)
-    let weekdayPattern = config.time_zone_patterns.weekday_pattern.hours;
-    let weekendPattern = config.time_zone_patterns.weekend_pattern.hours;
-    
+    const childModelEnabled = config.child_usage_model && config.child_usage_model.enabled;
+    const timezoneAware = childModelEnabled && config.child_usage_model.timezone_awareness;
+    const childComputedPatterns = childModelEnabled && config.child_usage_model ? config.child_usage_model.computed_patterns : null;
+
+    const weekdayPattern = childComputedPatterns && childComputedPatterns.weekday
+        ? childComputedPatterns.weekday
+        : config.time_zone_patterns.weekday_pattern.hours;
+
+    const weekendPattern = childComputedPatterns && childComputedPatterns.weekend
+        ? childComputedPatterns.weekend
+        : config.time_zone_patterns.weekend_pattern.hours;
+
     // Calculate capacity planning
     const capacityConfig = config.infrastructure_specs.capacity_planning;
     const peakBuffer = capacityConfig.peak_buffer_percentage;
-    
+    const alwaysOnPercentage = capacityConfig.always_on_percentage || 0;
+    const peakMultiplierThreshold = 0.5;
+
+    // Simplified baseline hosts calculation - just the raw always-on floor
+    const baselineConcurrent = peakConcurrent * alwaysOnPercentage;
+    let baselineHosts = 0;
+    if (baselineConcurrent > 0) {
+        baselineHosts = Math.ceil(baselineConcurrent / sessionsPerHost);
+    }
+
+    // Helper function to apply GameLift high availability (HA) rules
+    // Enforces a minimum of 2 hosts and rounds up to an even number for stability
+    const applyHostGARules = (hosts) => {
+        if (hosts <= 0) {
+            return 0;
+        }
+        let finalHosts = Math.max(hosts, 2); // Minimum of 2 hosts for HA
+        if (finalHosts % 2 !== 0) {
+            finalHosts += 1; // Round up to nearest even number
+        }
+        return finalHosts;
+    };
+
     const hourlyCosts = {
         instance_type: instanceType,
         sessions_per_host: sessionsPerHost,
@@ -878,37 +1984,38 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
             weekday_peak_hours: [],
             weekend_peak_hours: [],
             max_hosts_needed: 0
-        }
+        },
+        baseline_hosts: applyHostGARules(baselineHosts) // Display the HA-compliant baseline
     };
-    
+
     // Calculate costs for each hour
     let weekdayDailyCost = 0;
     let weekendDailyCost = 0;
     let maxHostsNeeded = 0;
-    
+
     for (let hour = 0; hour < 24; hour++) {
-        // Calculate timezone-aware multiplier for this EST hour
-        let weekdayMultiplier;
-        if (config.child_usage_model && config.child_usage_model.enabled && config.child_usage_model.timezone_awareness) {
-            // Apply timezone-aware calculation: patterns represent LOCAL time behavior
-            weekdayMultiplier = calculateTimezoneAwareMultiplier(hour, false, weekdayPattern, config);
-        } else {
-            // Use pattern as-is (legacy behavior for generic model)
-            weekdayMultiplier = weekdayPattern[hour.toString()] || 0;
+        const weekdayMultiplier = timezoneAware
+            ? calculateTimezoneAwareMultiplier(hour, weekdayPattern, config)
+            : (weekdayPattern[hour.toString()] || 0);
+
+        const weekdayConcurrent = peakConcurrent * (Number.isFinite(weekdayMultiplier) ? weekdayMultiplier : 0);
+        const weekdayDemandHosts = Math.ceil(weekdayConcurrent / sessionsPerHost);
+        let weekdayHosts = Math.max(weekdayDemandHosts, baselineHosts);
+
+        const isWeekdayPeak = weekdayMultiplier >= peakMultiplierThreshold && weekdayHosts > 0;
+        if (isWeekdayPeak) {
+            weekdayHosts = Math.ceil(weekdayHosts * (1 + peakBuffer));
         }
 
-        const weekdayConcurrent = peakConcurrent * weekdayMultiplier;
-        let weekdayHosts = Math.max(1, Math.ceil(weekdayConcurrent / sessionsPerHost));
-        // AWS requires minimum 2 servers and servers come in pairs
-        weekdayHosts = Math.max(2, weekdayHosts % 2 === 0 ? weekdayHosts : weekdayHosts + 1);
+        // Apply HA rules once at the end of the calculation for the hour
+        weekdayHosts = applyHostGARules(weekdayHosts);
 
-        // Track peak hours for reporting (>50% usage)
-        if (weekdayMultiplier > 0.5) {
+        if (isWeekdayPeak) {
             hourlyCosts.peak_hours_info.weekday_peak_hours.push({
                 hour: hour,
                 time: formatTimeLocal(hour),
                 hosts: weekdayHosts,
-                concurrent: Math.floor(weekdayConcurrent)
+                concurrent: Math.round(weekdayConcurrent)
             });
         }
 
@@ -917,34 +2024,35 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
         weekdayDailyCost += weekdayHourlyCost;
 
         hourlyCosts.weekday_hours[hour] = {
-            concurrent_users: Math.floor(weekdayConcurrent),
+            concurrent_users: Math.round(weekdayConcurrent),
             hosts_needed: weekdayHosts,
             hourly_cost: weekdayHourlyCost,
-            time_local: formatTimeLocal(hour)
+            time_local: formatTimeLocal(hour),
+            multiplier: weekdayMultiplier
         };
 
-        // Calculate timezone-aware weekend multiplier for this EST hour
-        let weekendMultiplier;
-        if (config.child_usage_model && config.child_usage_model.enabled && config.child_usage_model.timezone_awareness) {
-            // Apply timezone-aware calculation: patterns represent LOCAL time behavior
-            weekendMultiplier = calculateTimezoneAwareMultiplier(hour, true, weekendPattern, config);
-        } else {
-            // Use pattern as-is (legacy behavior for generic model)
-            weekendMultiplier = weekendPattern[hour.toString()] || 0;
+        const weekendMultiplier = timezoneAware
+            ? calculateTimezoneAwareMultiplier(hour, weekendPattern, config)
+            : (weekendPattern[hour.toString()] || 0);
+
+        const weekendConcurrent = peakConcurrent * (Number.isFinite(weekendMultiplier) ? weekendMultiplier : 0);
+        const weekendDemandHosts = Math.ceil(weekendConcurrent / sessionsPerHost);
+        let weekendHosts = Math.max(weekendDemandHosts, baselineHosts);
+
+        const isWeekendPeak = weekendMultiplier >= peakMultiplierThreshold && weekendHosts > 0;
+        if (isWeekendPeak) {
+            weekendHosts = Math.ceil(weekendHosts * (1 + peakBuffer));
         }
 
-        const weekendConcurrent = peakConcurrent * weekendMultiplier;
-        let weekendHosts = Math.max(1, Math.ceil(weekendConcurrent / sessionsPerHost));
-        // AWS requires minimum 2 servers and servers come in pairs
-        weekendHosts = Math.max(2, weekendHosts % 2 === 0 ? weekendHosts : weekendHosts + 1);
+        // Apply HA rules once at the end of the calculation for the hour
+        weekendHosts = applyHostGARules(weekendHosts);
 
-        // Track peak hours for reporting (>50% usage)
-        if (weekendMultiplier > 0.5) {
+        if (isWeekendPeak) {
             hourlyCosts.peak_hours_info.weekend_peak_hours.push({
                 hour: hour,
                 time: formatTimeLocal(hour),
                 hosts: weekendHosts,
-                concurrent: Math.floor(weekendConcurrent)
+                concurrent: Math.round(weekendConcurrent)
             });
         }
 
@@ -953,21 +2061,22 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
         weekendDailyCost += weekendHourlyCost;
 
         hourlyCosts.weekend_hours[hour] = {
-            concurrent_users: Math.floor(weekendConcurrent),
+            concurrent_users: Math.round(weekendConcurrent),
             hosts_needed: weekendHosts,
             hourly_cost: weekendHourlyCost,
-            time_local: formatTimeLocal(hour)
+            time_local: formatTimeLocal(hour),
+            multiplier: weekendMultiplier
         };
     }
-    
+
     hourlyCosts.peak_hours_info.max_hosts_needed = maxHostsNeeded;
-    
+
     // Calculate monthly totals
     const weekdaysPerMonth = 22;
     const weekendsPerMonth = 8;
     const monthlyCost = (weekdayDailyCost * weekdaysPerMonth) + (weekendDailyCost * weekendsPerMonth);
     const storageCost = capacityConfig.storage_cost_per_gb_month * capacityConfig.storage_gb_required;
-    
+
     hourlyCosts.monthly_totals = {
         infrastructure_cost: monthlyCost,
         storage_cost: storageCost,
@@ -976,14 +2085,14 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
         weekday_daily_cost: weekdayDailyCost,
         weekend_daily_cost: weekendDailyCost
     };
-    
+
     return hourlyCosts;
 }
 
 function displayResults(results) {
     const monthData = results[currentMonth];
     if (!monthData) return;
-    
+
     const content = `
         <div class="results-grid">
             <div class="result-card">
@@ -1005,7 +2114,7 @@ function displayResults(results) {
                     <span class="metric-value">${monthData.users.seasonal_multiplier.toFixed(2)}x</span>
                 </div>
             </div>
-            
+
             <div class="result-card">
                 <h4>💻 Server Configuration</h4>
                 <div class="metric">
@@ -1021,11 +2130,15 @@ function displayResults(results) {
                     <span class="metric-value">$${monthData.costs.hourly_rate.toFixed(2)}</span>
                 </div>
                 <div class="metric">
+                    <span class="metric-label">Always-On Servers</span>
+                    <span class="metric-value">${monthData.costs.baseline_hosts}</span>
+                </div>
+                <div class="metric">
                     <span class="metric-label">Cost Efficiency</span>
                     <span class="metric-value">${(monthData.costs.sessions_per_host / monthData.costs.hourly_rate).toFixed(1)} streams/$</span>
                 </div>
             </div>
-            
+
             <div class="result-card">
                 <h4>💰 Infrastructure Costs</h4>
                 <div class="metric">
@@ -1049,7 +2162,7 @@ function displayResults(results) {
                     <span class="metric-value"><strong>$${monthData.costs.monthly_totals.total_monthly_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong></span>
                 </div>
             </div>
-            
+
             <div class="result-card">
                 <h4>📈 Cost Efficiency</h4>
                 <div class="metric">
@@ -1129,54 +2242,80 @@ function displayResults(results) {
             ${generateRevenueAnalysis(results)}
         </div>
     `;
-    
+
     document.getElementById('results_content').innerHTML = content;
 }
 
 function generateCalculationBreakdown(monthData, month, allResults) {
     const users = monthData.users;
     const costs = monthData.costs;
+    const config = currentConfig || defaultConfig;
+    const childEnabled = config.child_usage_model && config.child_usage_model.enabled;
+    const growthRatePercent = (config.growth_assumptions.monthly_growth_rate * 100).toFixed(1);
+    const ratioFromUsers = Number.isFinite(users.peak_concurrent_ratio)
+        ? users.peak_concurrent_ratio
+        : (users.total_users > 0 && Number.isFinite(users.peak_concurrent_exact)
+            ? users.peak_concurrent_exact / users.total_users
+            : 0);
+    const peakRatioPercent = Number.isFinite(ratioFromUsers) && ratioFromUsers > 0
+        ? (ratioFromUsers * 100).toFixed(1)
+        : '0.0';
+    const perUserMinutes = Number.isFinite(users.expected_daily_minutes_per_user)
+        ? users.expected_daily_minutes_per_user
+        : null;
 
-    // Get current configuration values from the form
-    const config = gatherConfiguration();
-    
+    let timezoneSummary = '';
+    if (childEnabled && config.child_usage_model.timezone_awareness) {
+        const distribution = config.child_usage_model.timezone_awareness.timezone_distribution || {};
+        const parts = Object.entries(distribution).map(([key, value]) => {
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            const weight = value.percentage !== undefined ? value.percentage : (value.share || 0);
+            return `${label} ${(weight * 100).toFixed(0)}%`;
+        });
+        timezoneSummary = parts.length ? parts.join(', ') : '';
+    }
+
     // Find a peak hour for example calculation
-    const peakHour = Object.keys(costs.weekday_hours).find(hour => 
+    const peakHour = Object.keys(costs.weekday_hours).find(hour =>
         costs.weekday_hours[hour].concurrent_users > users.peak_concurrent * 0.8
     ) || "17"; // Default to 5 PM
-    
+
     const peakHourData = costs.weekday_hours[peakHour];
     const peakTime = formatTimeLocal(parseInt(peakHour));
-    
+
     // Find an off-peak hour for comparison
-    const offPeakHour = Object.keys(costs.weekday_hours).find(hour => 
+    const offPeakHour = Object.keys(costs.weekday_hours).find(hour =>
         costs.weekday_hours[hour].concurrent_users < users.peak_concurrent * 0.1
     ) || "3"; // Default to 3 AM
-    
+
     const offPeakData = costs.weekday_hours[offPeakHour];
     const offPeakTime = formatTimeLocal(parseInt(offPeakHour));
-    
+
     return `
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #28a745;">
             <h5 style="color: #155724; margin-bottom: 15px;">📋 Step-by-Step Cost Calculation</h5>
-            
+
             <div style="margin-bottom: 20px;">
                 <strong>Step 1: User Base & Peak Concurrent</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
-                    ${month === 1 ? 
-                        `• Starting DAU: <strong>${config.real_data_baseline.current_dau.toLocaleString()}</strong><br>
-                         • Household Filter: <strong>${(config.real_data_baseline.household_percentage * 100).toFixed(0)}%</strong> → ${Math.floor(config.real_data_baseline.current_dau * config.real_data_baseline.household_percentage).toLocaleString()} existing users<br>
-                         • New Marketing Users: <strong>${users.marketing_details.new_users.toLocaleString()}</strong> (all CoComelon users)<br>
-                         • Month 1 Total: <strong>${users.total_users.toLocaleString()}</strong><br>` :
-                        `• Previous Month Retained: <strong>${Math.floor(allResults[month - 1].users.total_users * config.marketing_acquisition.retention_curve.month_1).toLocaleString()}</strong> (${(config.marketing_acquisition.retention_curve.month_1 * 100).toFixed(0)}% retention)<br>
-                         • New Marketing Users: <strong>${users.marketing_details.new_users.toLocaleString()}</strong> (all CoComelon users)<br>
-                         • Month ${month} Total: <strong>${users.total_users.toLocaleString()}</strong><br>`
+                    ${month === 1 ?
+                        (() => {
+                            const baselineHouseholds = Math.max(users.base_users_before_seasonal - users.marketing_details.new_users, 0);
+                            return `• Launch Household Base: <strong>${Math.round(baselineHouseholds).toLocaleString()}</strong> homes<br>
+                                    • Launch Marketing Adds: <strong>${users.marketing_details.new_users.toLocaleString()}</strong><br>
+                                    • Pre-seasonal Active Base: <strong>${users.base_users_before_seasonal.toLocaleString()}</strong><br>`;
+                        })() :
+                        `• Retained from Month ${month - 1}: <strong>${users.retained_users.toLocaleString()}</strong><br>
+                         • Organic Growth (${growthRatePercent}% of retained): <strong>${users.marketing_details.organic_growth.toLocaleString()}</strong><br>
+                         • Marketing Adds: <strong>${users.marketing_details.new_users.toLocaleString()}</strong><br>
+                         • Pre-seasonal Active Base: <strong>${users.base_users_before_seasonal.toLocaleString()}</strong><br>`
                     }
-                    • Peak Concurrent (${config.child_usage_model.enabled ? '8%' : '10%'}): <strong>${users.peak_concurrent.toLocaleString()} users online simultaneously</strong><br>
-                    • Seasonal Adjustment: <strong>${users.seasonal_multiplier.toFixed(2)}x</strong>
+                    • Seasonal Adjustment: <strong>${users.seasonal_multiplier.toFixed(2)}x</strong> → <strong>${users.total_users.toLocaleString()}</strong> active users<br>
+                    ${perUserMinutes !== null ? `• Expected Playtime per User: <strong>${perUserMinutes.toFixed(0)} minutes/day</strong><br>` : ''}
+                    • Peak Concurrent (~${peakRatioPercent}%): <strong>${users.peak_concurrent.toLocaleString()} users online simultaneously</strong>
                 </div>
             </div>
-            
+
             <div style="margin-bottom: 20px;">
                 <strong>Step 2: Server Configuration</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
@@ -1185,17 +2324,18 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                     • Cost per Server: <strong>$${costs.hourly_rate.toFixed(2)}/hour</strong>
                 </div>
             </div>
-            
+
             <div style="margin-bottom: 20px;">
                 <strong>Step 3: Timezone-Aware Usage Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
-                    ${config.child_usage_model && config.child_usage_model.enabled ?
+                    ${childEnabled ?
                         `<strong>Child Model - Local Time Patterns with Timezone Distribution:</strong><br>
                          • <strong>Pattern Logic:</strong> Your hourly patterns represent LOCAL TIME behavior (17:00 = 5 PM local anywhere)<br>
-                         • <strong>Timezone Distribution:</strong> Eastern 47%, Central 29%, Mountain 7%, Pacific 17%<br>
+                         • <strong>Behavioural Inputs:</strong> Schedule windows, age cohorts, household routines, and parental stress multipliers all feed this curve<br>
+                         ${timezoneSummary ? `• <strong>Timezone Distribution:</strong> ${timezoneSummary}<br>` : ''}
                          • <strong>Example:</strong> If you set 5 PM = 1.0, this applies to 5 PM local in each timezone<br>
                          • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (5 PM in each timezone)<br>
-                         • <strong>Month 1 Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously<br>
+                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously<br>
                          • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
                          • <em>Cost savings come from timezone staggering of identical local-time patterns</em>` :
                         `<strong>Generic Model (No Timezone Staggering):</strong><br>
@@ -1223,7 +2363,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                     </div>
                 </div>
             </div>
-            
+
             <div style="margin-bottom: 20px;">
                 <strong>Step 5: Daily Cost Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
@@ -1231,7 +2371,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                     • Weekend Daily Cost: <strong>$${costs.monthly_totals.weekend_daily_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</strong> (sum of all 24 hours)
                 </div>
             </div>
-            
+
             <div style="margin-bottom: 20px;">
                 <strong>Step 6: Monthly Total Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
@@ -1280,27 +2420,88 @@ function generateYearOverview(results) {
             const isCurrentMonth = month === currentMonth;
             const cardClass = 'result-card';
             const style = isCurrentMonth ? 'border-left: 4px solid #ff6b6b;' : 'border-left: 4px solid #ddd; opacity: 0.7;';
+            const totalStreamingMinutes = calculateMonthlyStreamingMinutes(data.users, month);
+            const totalStreamingText = totalStreamingMinutes !== null
+                ? formatMinutesAsHoursMinutes(totalStreamingMinutes)
+                : '—';
+
+            const baseUsers = Number(data.users.base_users_before_seasonal) || 0;
+            const seasonalMultiplier = Number(data.users.seasonal_multiplier) || 1;
+            const totalUsers = Number(data.users.total_users) || 0;
+            const retainedUsers = Number(data.users.retained_users) || 0;
+            const marketingNew = data.users.marketing_details ? Number(data.users.marketing_details.new_users) || 0 : 0;
+            const marketingOrganic = data.users.marketing_details ? Number(data.users.marketing_details.organic_growth) || 0 : 0;
+            const perUserDailyMinutes = Number(data.users.expected_daily_minutes_per_user) || 0;
+            const daysInMonth = getDaysInMonth(month);
+            const peakConcurrent = Number(data.users.peak_concurrent) || 0;
+            const peakRatio = Number(data.users.peak_concurrent_ratio);
+            const ratioText = Number.isFinite(peakRatio) ? `${(peakRatio * 100).toFixed(2)}%` : 'derived';
+
+            const sessionsPerHost = Number(data.costs.sessions_per_host) || 1;
+            const hourlyRate = Number(data.costs.hourly_rate) || 0;
+            const baselineHosts = Number(data.costs.baseline_hosts) || 0;
+            const maxHosts = Number(data.costs.peak_hours_info.max_hosts_needed) || 0;
+            const rawPeakHosts = Math.ceil(peakConcurrent / sessionsPerHost) || 0;
+
+            const weekdayDailyCost = Number(data.costs.monthly_totals.weekday_daily_cost) || 0;
+            const weekendDailyCost = Number(data.costs.monthly_totals.weekend_daily_cost) || 0;
+            const storageCost = Number(data.costs.monthly_totals.storage_cost) || 0;
+            const totalMonthlyCost = Number(data.costs.monthly_totals.total_monthly_cost) || 0;
+            const costPerUser = Number(data.costs.monthly_totals.cost_per_user) || 0;
+
+            const usersTooltip = escapeTooltipText(
+                `Base active users ${baseUsers.toLocaleString()} × seasonal multiplier ${seasonalMultiplier.toFixed(2)} = ${totalUsers.toLocaleString()} total users\nRetained: ${retainedUsers.toLocaleString()} • Marketing: ${marketingNew.toLocaleString()} • Organic: ${marketingOrganic.toLocaleString()}`
+            );
+
+            const peakTooltip = escapeTooltipText(
+                `${totalUsers.toLocaleString()} users × ${ratioText} peak ratio = ${peakConcurrent.toLocaleString()} concurrent users`);
+
+            const instanceTooltip = escapeTooltipText(
+                `${data.costs.instance_type}: ${sessionsPerHost} sessions/host @ $${hourlyRate.toFixed(2)}/hour`);
+
+            const maxHostsTooltip = escapeTooltipText(
+                `ceil(${peakConcurrent.toLocaleString()} ÷ ${sessionsPerHost}) = ${rawPeakHosts.toLocaleString()} raw hosts\nBaseline floor: ${baselineHosts.toLocaleString()} • Final with buffer & HA: ${maxHosts.toLocaleString()}`);
+
+            const watchTimeTooltip = totalStreamingMinutes !== null
+                ? escapeTooltipText(
+                    `Per-user daily minutes ${perUserDailyMinutes.toFixed(1)} × ${daysInMonth} days × ${totalUsers.toLocaleString()} users = ${(Math.round(totalStreamingMinutes)).toLocaleString()} minutes`)
+                : '';
+
+            const monthlyCostTooltip = escapeTooltipText(
+                `Weekdays: $${weekdayDailyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })} × 22 = $${(weekdayDailyCost * 22).toLocaleString('en-US', { maximumFractionDigits: 0 })}\nWeekends: $${weekendDailyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })} × 8 = $${(weekendDailyCost * 8).toLocaleString('en-US', { maximumFractionDigits: 0 })}\nStorage: $${storageCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}\nTotal: $${totalMonthlyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}`);
+
+            const costPerUserTooltip = totalUsers > 0
+                ? escapeTooltipText(`$${totalMonthlyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })} ÷ ${totalUsers.toLocaleString()} users = $${costPerUser.toFixed(2)} per user`)
+                : '';
 
             overview += `
                 <div class="${cardClass}" style="${style}" onclick="selectMonth(${month})" title="Click to view Month ${month} details">
                     <h5 style="cursor: pointer;">Month ${month}</h5>
-                    <div class="metric">
+                    <div class="metric" data-tooltip="${usersTooltip}">
                         <span class="metric-label">Users</span>
                         <span class="metric-value">${data.users.total_users.toLocaleString()}</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" data-tooltip="${peakTooltip}">
+                        <span class="metric-label">Peak Concurrent</span>
+                        <span class="metric-value">${data.users.peak_concurrent.toLocaleString()}</span>
+                    </div>
+                    <div class="metric" data-tooltip="${instanceTooltip}">
                         <span class="metric-label">Server Type</span>
                         <span class="metric-value">${data.costs.instance_type}</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" data-tooltip="${maxHostsTooltip}">
                         <span class="metric-label">Max Servers</span>
                         <span class="metric-value">${data.costs.peak_hours_info.max_hosts_needed}</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" data-tooltip="${watchTimeTooltip}">
+                        <span class="metric-label">Total Watch Time</span>
+                        <span class="metric-value">${totalStreamingText}</span>
+                    </div>
+                    <div class="metric" data-tooltip="${monthlyCostTooltip}">
                         <span class="metric-label">Monthly Cost</span>
                         <span class="metric-value">$${data.costs.monthly_totals.total_monthly_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" data-tooltip="${costPerUserTooltip}">
                         <span class="metric-label">Cost/User</span>
                         <span class="metric-value">$${data.costs.monthly_totals.cost_per_user.toFixed(2)}</span>
                     </div>
