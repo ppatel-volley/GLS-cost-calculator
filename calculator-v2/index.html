@@ -38,7 +38,7 @@
             border-radius: 16px 16px 0 0;
             position: relative;
         }
-        
+
         .header::after {
             content: '';
             position: absolute;
@@ -545,6 +545,16 @@
             font-size: 1rem;
         }
 
+        .instance-detail-line {
+            font-size: 0.85rem;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+
+        .instance-detail-line strong {
+            color: #1f2937;
+        }
+
         .instance-row {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -570,11 +580,11 @@
             .main-content {
                 grid-template-columns: 1fr;
             }
-            
+
             .hourly-pattern {
                 grid-template-columns: repeat(4, 1fr);
             }
-            
+
             .header h1 {
                 font-size: 2rem;
             }
@@ -586,6 +596,31 @@
             border-radius: 8px;
             padding: 20px;
             border: 1px solid #e9ecef;
+        }
+
+        .chart-scroll {
+            overflow-x: auto;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+        }
+
+        .chart-scroll-inner {
+            display: inline-flex;
+            justify-content: center;
+            min-width: 900px;
+        }
+
+        .chart-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .chart-scroll::-webkit-scrollbar-thumb {
+            background: rgba(79, 70, 229, 0.35);
+            border-radius: 4px;
+        }
+
+        .chart-scroll::-webkit-scrollbar-track {
+            background: rgba(226, 232, 240, 0.6);
         }
     </style>
 </head>
@@ -781,7 +816,7 @@
                     <div class="section-description">
                         Configure your marketing-driven new user acquisition targets for each month. These targets can be adjusted based on marketing budget, campaigns, and market conditions.
                     </div>
-                    
+
                     <div class="form-group">
                         <div class="label-with-tooltip">
                             <label>New User Assumptions</label>
@@ -871,7 +906,7 @@
                             <span>Off-Peak Hours (low server needs)</span>
                         </div>
                     </div>
-                    
+
                     <h5>Weekday Pattern (School Days) - All Times in Eastern Time (EST/EDT)</h5>
                     <div style="font-size: 0.85rem; color: #666; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
                         <strong>Timezone Reference:</strong> Enter usage multipliers for Eastern Time hours. The calculator automatically converts these to local time for each user's timezone (Eastern 47%, Central 29%, Mountain 7%, Pacific 17%) to create staggered peak distributions.
@@ -894,8 +929,19 @@
                 <div class="section">
                     <h3>💻 Server Instance Type</h3>
                     <div class="section-description">
-                        Using <strong>gen4n_mid (NVIDIA T4 - Mid capacity)</strong>: 6 sessions per host at $0.77/hour. This is the optimal balance of performance and cost-efficiency.
+                        Choose your preferred Amazon GameLift Streams class. Existing T4 pricing remains available alongside the new Gen6 NVIDIA L4 stream classes.
                     </div>
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Instance / Stream Class</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Switch between the original NVIDIA T4 stream class and new Gen6 NVIDIA L4 stream classes. Pricing defaults to us-east-1 beta rates. Multi-tenant Gen6 options share GPUs for lower cost, while dedicated options provide full GPU access.</span>
+                            </div>
+                        </div>
+                        <select id="instance_type_select"></select>
+                    </div>
+                    <div id="instance_type_details" class="section-description" style="margin-top: 12px; background: #f8fafc; border-left: 4px solid #4f46e5; font-size: 0.85rem; color: #1f2937;"></div>
                 </div>
 
                 <div class="section">
@@ -903,7 +949,7 @@
                     <div class="section-description">
                         Configure buffer capacity and storage needs to ensure reliable service during unexpected spikes.
                     </div>
-                    
+
                     <div class="form-group">
                         <div class="label-with-tooltip">
                             <label>Peak Buffer Percentage</label>
