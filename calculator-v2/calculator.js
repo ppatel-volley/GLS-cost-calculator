@@ -199,11 +199,39 @@ const defaultConfig = {
     },
 
     infrastructure_specs: {
+        selected_instance_type: 'gen4n_mid',
         instance_types: {
             gen4n_mid: {
                 description: "NVIDIA T4 - Mid capacity",
+                display_name: "gen4n_mid (NVIDIA T4)",
+                gpu: "NVIDIA T4",
+                ec2_instance_type: "g4dn.4xlarge",
+                tenancy_ratio: "1:6",
                 sessions_per_host: 6,
                 hourly_rate: 0.77,
+                pricing_region: "us-east-1",
+                available_from_month: 1
+            },
+            gen6n_small: {
+                description: "NVIDIA L4 multi-tenant option with 1:12 tenancy",
+                display_name: "gen6n_small (NVIDIA L4 • 1:12)",
+                gpu: "NVIDIA L4",
+                ec2_instance_type: "g6.4xlarge",
+                tenancy_ratio: "1:12",
+                sessions_per_host: 12,
+                hourly_rate: 0.1599,
+                pricing_region: "us-east-1",
+                available_from_month: 1
+            },
+            gen6n_medium: {
+                description: "Balanced NVIDIA L4 stream class with 1:4 tenancy",
+                display_name: "gen6n_medium (NVIDIA L4 • 1:4)",
+                gpu: "NVIDIA L4",
+                ec2_instance_type: "g6.2xlarge",
+                tenancy_ratio: "1:4",
+                sessions_per_host: 4,
+                hourly_rate: 0.3848,
+                pricing_region: "us-east-1",
                 available_from_month: 1
             }
         },
@@ -649,6 +677,84 @@ const patternGraphState = {};
 let patternGraphDragState = null;
 let patternGraphHandlersAttached = false;
 
+function populateInstanceTypeOptions(selectElement, infrastructureSpecs) {
+    if (!selectElement || !infrastructureSpecs || !infrastructureSpecs.instance_types) {
+        return;
+    }
+
+    const instanceEntries = Object.entries(infrastructureSpecs.instance_types);
+    instanceEntries.sort((a, b) => {
+        const nameA = (a[1].display_name || a[0] || '').toLowerCase();
+        const nameB = (b[1].display_name || b[0] || '').toLowerCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return 0;
+    });
+
+    const previouslySelected = infrastructureSpecs.selected_instance_type || selectElement.value;
+    selectElement.innerHTML = '';
+
+    instanceEntries.forEach(([key, specs]) => {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = specs.display_name || key;
+        option.dataset.description = specs.description || '';
+        option.dataset.sessions = specs.sessions_per_host || '';
+        option.dataset.rate = specs.hourly_rate || '';
+        option.dataset.ec2 = specs.ec2_instance_type || '';
+        option.dataset.gpu = specs.gpu || '';
+        option.dataset.tenancy = specs.tenancy_ratio || '';
+        option.dataset.region = specs.pricing_region || '';
+        selectElement.appendChild(option);
+    });
+
+    const validSelection = instanceEntries.some(([key]) => key === previouslySelected)
+        ? previouslySelected
+        : (instanceEntries.length ? instanceEntries[0][0] : '');
+
+    if (validSelection) {
+        selectElement.value = validSelection;
+        infrastructureSpecs.selected_instance_type = validSelection;
+    }
+
+    updateInstanceTypeDetails(selectElement.value, infrastructureSpecs);
+}
+
+function updateInstanceTypeDetails(selectedKey, infrastructureSpecs) {
+    const container = document.getElementById('instance_type_details');
+    if (!container) {
+        return;
+    }
+
+    const instances = infrastructureSpecs && infrastructureSpecs.instance_types
+        ? infrastructureSpecs.instance_types
+        : null;
+
+    const specs = instances && selectedKey ? instances[selectedKey] : null;
+
+    if (!specs) {
+        container.innerHTML = '<div class="instance-detail-line">No instance selected.</div>';
+        return;
+    }
+
+    const detailLines = [];
+
+    detailLines.push(`<div class="instance-detail-line"><strong>Description:</strong> ${escapeTooltipText(specs.description || '—')}</div>`);
+    detailLines.push(`<div class="instance-detail-line"><strong>Sessions per Server:</strong> ${Number(specs.sessions_per_host).toLocaleString()}</div>`);
+    detailLines.push(`<div class="instance-detail-line"><strong>Hourly Rate:</strong> $${Number(specs.hourly_rate).toFixed(4)} (${escapeTooltipText(specs.pricing_region || 'region unknown')})</div>`);
+    if (specs.tenancy_ratio) {
+        detailLines.push(`<div class="instance-detail-line"><strong>Tenancy Ratio:</strong> ${escapeTooltipText(specs.tenancy_ratio)}</div>`);
+    }
+    if (specs.ec2_instance_type) {
+        detailLines.push(`<div class="instance-detail-line"><strong>Underlying EC2:</strong> ${escapeTooltipText(specs.ec2_instance_type)}</div>`);
+    }
+    if (specs.gpu) {
+        detailLines.push(`<div class="instance-detail-line"><strong>GPU:</strong> ${escapeTooltipText(specs.gpu)}</div>`);
+    }
+
+    container.innerHTML = detailLines.join('');
+}
+
 function clamp(value, min, max) {
     if (!Number.isFinite(value)) {
         return min;
@@ -1076,11 +1182,21 @@ async function loadInstanceTypesFromConfig() {
         }
 
         const externalConfig = await response.json();
-        if (externalConfig &&
-            externalConfig.infrastructure_specs &&
-            externalConfig.infrastructure_specs.instance_types) {
+        if (!externalConfig) {
+            return;
+        }
 
-            defaultConfig.infrastructure_specs.instance_types = externalConfig.infrastructure_specs.instance_types;
+        const infrastructure = externalConfig.infrastructure_specs || {};
+        const externalInstances = infrastructure.instance_types;
+
+        if (externalInstances && typeof externalInstances === 'object') {
+            Object.entries(externalInstances).forEach(([key, value]) => {
+                defaultConfig.infrastructure_specs.instance_types[key] = Object.assign({}, value);
+            });
+        }
+
+        if (typeof infrastructure.selected_instance_type === 'string' && infrastructure.selected_instance_type.length > 0) {
+            defaultConfig.infrastructure_specs.selected_instance_type = infrastructure.selected_instance_type;
         }
     } catch (error) {
         console.warn('Unable to load instance types from config.json:', error.message);
@@ -1183,6 +1299,11 @@ function loadDefaultValues() {
     document.getElementById('storage_gb_required').value = defaultConfig.infrastructure_specs.capacity_planning.storage_gb_required;
     document.getElementById('storage_cost_per_gb_month').value = defaultConfig.infrastructure_specs.capacity_planning.storage_cost_per_gb_month;
 
+    const instanceSelect = document.getElementById('instance_type_select');
+    if (instanceSelect) {
+        populateInstanceTypeOptions(instanceSelect, defaultConfig.infrastructure_specs);
+    }
+
     // Load timezone distribution values if they exist in config and elements exist
     if (defaultConfig.child_usage_model &&
         defaultConfig.child_usage_model.timezone_awareness &&
@@ -1233,6 +1354,20 @@ function setupEventListeners() {
         childModelSelect.addEventListener('change', function() {
             const useChildModel = this.value === 'true';
             updateHourlyPatternInputs(useChildModel);
+        });
+    }
+
+    const instanceSelect = document.getElementById('instance_type_select');
+    if (instanceSelect) {
+        instanceSelect.addEventListener('change', function() {
+            const infrastructure = defaultConfig.infrastructure_specs;
+            if (!infrastructure) {
+                return;
+            }
+
+            infrastructure.selected_instance_type = this.value;
+            updateInstanceTypeDetails(this.value, infrastructure);
+            autoSaveConfig();
         });
     }
 }
@@ -1396,6 +1531,11 @@ function gatherConfiguration() {
     // Gather all form values into config structure (removed business model)
     const config = JSON.parse(JSON.stringify(defaultConfig)); // Deep clone
 
+    const instanceSelect = document.getElementById('instance_type_select');
+    if (instanceSelect) {
+        config.infrastructure_specs.selected_instance_type = instanceSelect.value;
+    }
+
     // Update basic values
     config.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
     config.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
@@ -1513,7 +1653,10 @@ function gatherConfiguration() {
         config.time_zone_patterns.weekend_pattern.hours = normalizeSeries(normalizedWeekend, computedWeekend, maxWeekend);
     }
 
-    // Instance configuration is now fixed (gen4n_mid only)
+    // Update ability to persist selected instance type
+    if (config.infrastructure_specs && typeof config.infrastructure_specs.selected_instance_type !== 'string') {
+        config.infrastructure_specs.selected_instance_type = 'gen4n_mid';
+    }
 
     return config;
 }
@@ -1572,6 +1715,8 @@ function autoSaveConfig() {
                                  document.getElementById('child_model_enabled').value === 'true';
 
         currentConfig.child_usage_model.enabled = childModelEnabled;
+
+    currentConfig.infrastructure_specs.selected_instance_type = defaultConfig.infrastructure_specs.selected_instance_type;
 
         if (childModelEnabled) {
             // Apply hardcoded population-level settings automatically (no user configuration)
@@ -1634,6 +1779,11 @@ function updateDynamicDisplays(config) {
     if (retentionDisplay) {
         retentionDisplay.textContent = Math.round(config.marketing_acquisition.retention_curve.month_1 * 100);
     }
+
+    const instanceSelect = document.getElementById('instance_type_select');
+    if (instanceSelect) {
+        populateInstanceTypeOptions(instanceSelect, config.infrastructure_specs);
+    }
 }
 
 function loadSavedConfig() {
@@ -1656,6 +1806,10 @@ function loadSavedConfig() {
                 defaultConfig.infrastructure_specs.instance_types = externalInstanceTypes;
             }
 
+            if (parsedConfig.infrastructure_specs && typeof parsedConfig.infrastructure_specs.selected_instance_type === 'string') {
+                defaultConfig.infrastructure_specs.selected_instance_type = parsedConfig.infrastructure_specs.selected_instance_type;
+            }
+
             if (parsedConfig.time_zone_patterns && parsedConfig.time_zone_patterns.weekday_pattern && parsedConfig.time_zone_patterns.weekday_pattern.hours) {
                 genericTimePatterns.weekday_pattern.hours = Object.assign({}, parsedConfig.time_zone_patterns.weekday_pattern.hours);
             }
@@ -1676,6 +1830,10 @@ function loadSavedConfig() {
 function runCalculations(config) {
     // JavaScript implementation of the calculator logic (removed business model calculations)
     const results = {};
+
+    if (config && config.infrastructure_specs && config.infrastructure_specs.selected_instance_type) {
+        defaultConfig.infrastructure_specs.selected_instance_type = config.infrastructure_specs.selected_instance_type;
+    }
 
     // Calculate monthly users
     const monthlyUsers = calculateMonthlyUsers(config);
@@ -1812,6 +1970,12 @@ function calculateMonthlyUsers(config) {
 
 function getOptimalInstanceType(month, config) {
     const instances = config.infrastructure_specs.instance_types;
+    const selectedType = config.infrastructure_specs.selected_instance_type;
+
+    if (selectedType && instances[selectedType]) {
+        return selectedType;
+    }
+
     const availableTypes = [];
 
     for (const [name, specs] of Object.entries(instances)) {
@@ -1932,6 +2096,15 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
 
     const sessionsPerHost = instanceSpecs.sessions_per_host;
     const hourlyRate = instanceSpecs.hourly_rate;
+    const selectedInstanceMetadata = {
+        name: instanceType,
+        display_name: instanceSpecs.display_name || instanceType,
+        description: instanceSpecs.description || '',
+        gpu: instanceSpecs.gpu || '',
+        tenancy_ratio: instanceSpecs.tenancy_ratio || '',
+        ec2_instance_type: instanceSpecs.ec2_instance_type || '',
+        pricing_region: instanceSpecs.pricing_region || ''
+    };
 
     // Always use user's hourly pattern inputs regardless of model type
     // The model type only affects what default patterns are loaded into the inputs
@@ -1980,6 +2153,7 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
         hourly_rate: hourlyRate,
         weekday_hours: {},
         weekend_hours: {},
+        selected_instance: selectedInstanceMetadata,
         peak_hours_info: {
             weekday_peak_hours: [],
             weekend_peak_hours: [],
@@ -2119,7 +2293,7 @@ function displayResults(results) {
                 <h4>💻 Server Configuration</h4>
                 <div class="metric">
                     <span class="metric-label">Instance Type</span>
-                    <span class="metric-value">${monthData.costs.instance_type}</span>
+                    <span class="metric-value" data-tooltip="${escapeTooltipText(`EC2: ${monthData.costs.selected_instance.ec2_instance_type}\nGPU: ${monthData.costs.selected_instance.gpu}\nTenancy: ${monthData.costs.selected_instance.tenancy_ratio}\nRegion: ${monthData.costs.selected_instance.pricing_region}`)}">${monthData.costs.selected_instance.display_name}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Sessions per Server</span>
@@ -2222,7 +2396,11 @@ function displayResults(results) {
 
         <div class="chart-container">
             <h4>📊 12-Month Trends Overview</h4>
-            ${generateTrendsChart(results)}
+            <div class="chart-scroll">
+                <div class="chart-scroll-inner">
+                    ${generateTrendsChart(results)}
+                </div>
+            </div>
         </div>
 
         <div class="chart-container">
@@ -2621,7 +2799,7 @@ function generateTrendsChart(results) {
     });
 
     return `
-        <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+        <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px; min-width: ${chartWidth}px;">
             <div style="display: flex; justify-content: center; margin-bottom: 15px;">
                 <div style="display: flex; gap: 30px; font-size: 12px;">
                     <div style="display: flex; align-items: center; gap: 8px;">
