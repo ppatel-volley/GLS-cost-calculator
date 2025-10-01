@@ -933,13 +933,25 @@
                     </div>
                     <div class="form-group">
                         <div class="label-with-tooltip">
-                            <label>Instance / Stream Class</label>
+                            <label>Target Stream Class (after bridge months)</label>
                             <div class="tooltip">
                                 <span class="tooltip-icon">?</span>
-                                <span class="tooltiptext">Switch between the original NVIDIA T4 stream class and new Gen6 NVIDIA L4 stream classes. Pricing defaults to us-east-1 beta rates. Multi-tenant Gen6 options share GPUs for lower cost, while dedicated options provide full GPU access.</span>
+                                <span class="tooltiptext">Choose which stream class to use once the gen4 bridge period ends. Keep gen4n_mid selected if you want to stay on T4 the entire year.</span>
                             </div>
                         </div>
                         <select id="instance_type_select"></select>
+                    </div>
+                    <div class="form-group">
+                        <div class="label-with-tooltip">
+                            <label>Months on gen4n before switching</label>
+                            <div class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltiptext">Use gen4n_mid for the first N months while Gen6 capacity ramps. After that, the selected Gen6 stream class will be used automatically.</span>
+                            </div>
+                        </div>
+                        <input type="number" id="gen4_bridge_months" min="0" max="12" step="1" value="0">
+                    </div>
+                    <div id="bridge_warning" style="display:none; font-size: 0.8rem; color: #b91c1c; background: #fee2e2; border-left: 3px solid #ef4444; padding: 10px; border-radius: 6px; margin-bottom: 10px;">
                     </div>
                     <div id="instance_type_details" class="section-description" style="margin-top: 12px; background: #f8fafc; border-left: 4px solid #4f46e5; font-size: 0.85rem; color: #1f2937;"></div>
                 </div>

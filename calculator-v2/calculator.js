@@ -200,6 +200,7 @@ const defaultConfig = {
 
     infrastructure_specs: {
         selected_instance_type: 'gen4n_mid',
+        months_on_gen4n_before_switch: 0,
         instance_types: {
             gen4n_mid: {
                 description: "NVIDIA T4 - Mid capacity",
@@ -222,6 +223,18 @@ const defaultConfig = {
                 hourly_rate: 0.1599,
                 pricing_region: "us-east-1",
                 available_from_month: 1
+            },
+            gen6n_small_t8: {
+                description: "Speculative NVIDIA L4 small stream class limited to 8 concurrent sessions",
+                display_name: "gen6n_small (Speculative 1:8)",
+                gpu: "NVIDIA L4",
+                ec2_instance_type: "g6.4xlarge",
+                tenancy_ratio: "1:8 (speculative)",
+                sessions_per_host: 8,
+                hourly_rate: 0.1599,
+                pricing_region: "us-east-1",
+                available_from_month: 1,
+                speculative: true
             },
             gen6n_medium: {
                 description: "Balanced NVIDIA L4 stream class with 1:4 tenancy",
@@ -684,6 +697,12 @@ function populateInstanceTypeOptions(selectElement, infrastructureSpecs) {
 
     const instanceEntries = Object.entries(infrastructureSpecs.instance_types);
     instanceEntries.sort((a, b) => {
+        const speculativeA = a[1].speculative ? 1 : 0;
+        const speculativeB = b[1].speculative ? 1 : 0;
+        if (speculativeA !== speculativeB) {
+            return speculativeA - speculativeB; // non-speculative first
+        }
+
         const nameA = (a[1].display_name || a[0] || '').toLowerCase();
         const nameB = (b[1].display_name || b[0] || '').toLowerCase();
         if (nameA < nameB) return -1;
@@ -705,6 +724,9 @@ function populateInstanceTypeOptions(selectElement, infrastructureSpecs) {
         option.dataset.gpu = specs.gpu || '';
         option.dataset.tenancy = specs.tenancy_ratio || '';
         option.dataset.region = specs.pricing_region || '';
+        if (specs.speculative) {
+            option.dataset.speculative = 'true';
+        }
         selectElement.appendChild(option);
     });
 
@@ -718,6 +740,7 @@ function populateInstanceTypeOptions(selectElement, infrastructureSpecs) {
     }
 
     updateInstanceTypeDetails(selectElement.value, infrastructureSpecs);
+    updateBridgeWarning();
 }
 
 function updateInstanceTypeDetails(selectedKey, infrastructureSpecs) {
@@ -734,10 +757,15 @@ function updateInstanceTypeDetails(selectedKey, infrastructureSpecs) {
 
     if (!specs) {
         container.innerHTML = '<div class="instance-detail-line">No instance selected.</div>';
+        updateBridgeWarning();
         return;
     }
 
     const detailLines = [];
+
+    if (specs.speculative) {
+        detailLines.push(`<div class="instance-detail-line" style="color:#b45309;"><strong>⚠️ Speculative:</strong> This configuration models an experimental 1:8 tenancy version of gen6n_small.</div>`);
+    }
 
     detailLines.push(`<div class="instance-detail-line"><strong>Description:</strong> ${escapeTooltipText(specs.description || '—')}</div>`);
     detailLines.push(`<div class="instance-detail-line"><strong>Sessions per Server:</strong> ${Number(specs.sessions_per_host).toLocaleString()}</div>`);
@@ -753,6 +781,29 @@ function updateInstanceTypeDetails(selectedKey, infrastructureSpecs) {
     }
 
     container.innerHTML = detailLines.join('');
+    updateBridgeWarning();
+}
+
+function updateBridgeWarning() {
+    const warning = document.getElementById('bridge_warning');
+    if (!warning) {
+        return;
+    }
+
+    const infrastructure = defaultConfig.infrastructure_specs || {};
+    const bridgeMonths = Number(infrastructure.months_on_gen4n_before_switch) || 0;
+    const selectedType = infrastructure.selected_instance_type || 'gen4n_mid';
+
+    if (bridgeMonths > 0 && selectedType === 'gen4n_mid') {
+        warning.style.display = 'block';
+        warning.textContent = `Bridge period set to ${bridgeMonths} month${bridgeMonths === 1 ? '' : 's'}, but target stream class is still gen4n_mid. Gen6 will never activate.`;
+    } else if (bridgeMonths === 0 && selectedType !== 'gen4n_mid') {
+        warning.style.display = 'block';
+        warning.textContent = 'Bridge months are 0, so the selected Gen6 class will be used immediately.';
+    } else {
+        warning.style.display = 'none';
+        warning.textContent = '';
+    }
 }
 
 function clamp(value, min, max) {
@@ -1304,6 +1355,13 @@ function loadDefaultValues() {
         populateInstanceTypeOptions(instanceSelect, defaultConfig.infrastructure_specs);
     }
 
+    const gen4BridgeInput = document.getElementById('gen4_bridge_months');
+    if (gen4BridgeInput) {
+        gen4BridgeInput.value = defaultConfig.infrastructure_specs.months_on_gen4n_before_switch || 0;
+    }
+
+    updateBridgeWarning();
+
     // Load timezone distribution values if they exist in config and elements exist
     if (defaultConfig.child_usage_model &&
         defaultConfig.child_usage_model.timezone_awareness &&
@@ -1367,6 +1425,22 @@ function setupEventListeners() {
 
             infrastructure.selected_instance_type = this.value;
             updateInstanceTypeDetails(this.value, infrastructure);
+            updateBridgeWarning();
+            autoSaveConfig();
+        });
+    }
+
+    const bridgeInput = document.getElementById('gen4_bridge_months');
+    if (bridgeInput) {
+        bridgeInput.addEventListener('input', function() {
+            const infrastructure = defaultConfig.infrastructure_specs;
+            if (!infrastructure) {
+                return;
+            }
+
+            const parsedValue = parseInt(this.value, 10);
+            infrastructure.months_on_gen4n_before_switch = Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
+            updateBridgeWarning();
             autoSaveConfig();
         });
     }
@@ -1581,6 +1655,14 @@ function gatherConfiguration() {
     const userWeekdayPattern = {};
     const userWeekendPattern = {};
 
+    const bridgeMonthsInput = document.getElementById('gen4_bridge_months');
+    if (bridgeMonthsInput) {
+        const bridgeMonths = parseInt(bridgeMonthsInput.value, 10);
+        config.infrastructure_specs.months_on_gen4n_before_switch = Number.isFinite(bridgeMonths) && bridgeMonths >= 0 ? bridgeMonths : 0;
+    } else {
+        config.infrastructure_specs.months_on_gen4n_before_switch = defaultConfig.infrastructure_specs.months_on_gen4n_before_switch || 0;
+    }
+
     for (let hour = 0; hour < 24; hour++) {
         const weekdayValue = parseFloat(document.getElementById(`weekday_${hour}`).value);
         const weekendValue = parseFloat(document.getElementById(`weekend_${hour}`).value);
@@ -1716,7 +1798,9 @@ function autoSaveConfig() {
 
         currentConfig.child_usage_model.enabled = childModelEnabled;
 
-    currentConfig.infrastructure_specs.selected_instance_type = defaultConfig.infrastructure_specs.selected_instance_type;
+        currentConfig.infrastructure_specs.selected_instance_type = defaultConfig.infrastructure_specs.selected_instance_type;
+        currentConfig.infrastructure_specs.months_on_gen4n_before_switch = defaultConfig.infrastructure_specs.months_on_gen4n_before_switch || 0;
+        updateBridgeWarning();
 
         if (childModelEnabled) {
             // Apply hardcoded population-level settings automatically (no user configuration)
@@ -1810,6 +1894,10 @@ function loadSavedConfig() {
                 defaultConfig.infrastructure_specs.selected_instance_type = parsedConfig.infrastructure_specs.selected_instance_type;
             }
 
+            if (parsedConfig.infrastructure_specs && Number.isFinite(parsedConfig.infrastructure_specs.months_on_gen4n_before_switch)) {
+                defaultConfig.infrastructure_specs.months_on_gen4n_before_switch = parsedConfig.infrastructure_specs.months_on_gen4n_before_switch;
+            }
+
             if (parsedConfig.time_zone_patterns && parsedConfig.time_zone_patterns.weekday_pattern && parsedConfig.time_zone_patterns.weekday_pattern.hours) {
                 genericTimePatterns.weekday_pattern.hours = Object.assign({}, parsedConfig.time_zone_patterns.weekday_pattern.hours);
             }
@@ -1833,6 +1921,10 @@ function runCalculations(config) {
 
     if (config && config.infrastructure_specs && config.infrastructure_specs.selected_instance_type) {
         defaultConfig.infrastructure_specs.selected_instance_type = config.infrastructure_specs.selected_instance_type;
+    }
+
+    if (config && config.infrastructure_specs && Number.isFinite(config.infrastructure_specs.months_on_gen4n_before_switch)) {
+        defaultConfig.infrastructure_specs.months_on_gen4n_before_switch = config.infrastructure_specs.months_on_gen4n_before_switch;
     }
 
     // Calculate monthly users
@@ -1971,6 +2063,11 @@ function calculateMonthlyUsers(config) {
 function getOptimalInstanceType(month, config) {
     const instances = config.infrastructure_specs.instance_types;
     const selectedType = config.infrastructure_specs.selected_instance_type;
+    const bridgeMonths = Number(config.infrastructure_specs.months_on_gen4n_before_switch) || 0;
+
+    if (month <= bridgeMonths) {
+        return 'gen4n_mid';
+    }
 
     if (selectedType && instances[selectedType]) {
         return selectedType;
@@ -2267,6 +2364,13 @@ function displayResults(results) {
     const monthData = results[currentMonth];
     if (!monthData) return;
 
+    const totalMonthlyCost = monthData.costs.monthly_totals.total_monthly_cost || 0;
+    const totalUsers = monthData.users.total_users || 0;
+    const costPerUserMonthly = monthData.costs.monthly_totals.cost_per_user || (totalUsers > 0 ? totalMonthlyCost / totalUsers : 0);
+    const daysInMonth = getDaysInMonth(currentMonth) || 30;
+    const costPerUserDaily = daysInMonth > 0 ? costPerUserMonthly / daysInMonth : 0;
+    const costPerUserWeekly = costPerUserDaily * 7;
+
     const content = `
         <div class="results-grid">
             <div class="result-card">
@@ -2340,8 +2444,16 @@ function displayResults(results) {
             <div class="result-card">
                 <h4>📈 Cost Efficiency</h4>
                 <div class="metric">
-                    <span class="metric-label">Cost per User</span>
-                    <span class="metric-value">$${monthData.costs.monthly_totals.cost_per_user.toFixed(2)}</span>
+                    <span class="metric-label">Cost per User (Daily)</span>
+                    <span class="metric-value">$${costPerUserDaily.toFixed(2)}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Cost per User (Weekly)</span>
+                    <span class="metric-value">$${costPerUserWeekly.toFixed(2)}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Cost per User (Monthly)</span>
+                    <span class="metric-value">$${costPerUserMonthly.toFixed(2)}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Cost per Concurrent User</span>
@@ -2441,6 +2553,9 @@ function generateCalculationBreakdown(monthData, month, allResults) {
     const perUserMinutes = Number.isFinite(users.expected_daily_minutes_per_user)
         ? users.expected_daily_minutes_per_user
         : null;
+    const bridgeMonths = Number(config.infrastructure_specs.months_on_gen4n_before_switch) || 0;
+    const usingGen4Bridge = month <= bridgeMonths;
+    const bridgeSummary = usingGen4Bridge ? `Using gen4n_mid bridge capacity (month ${month} of ${bridgeMonths} before Gen6 switch)` : '';
 
     let timezoneSummary = '';
     if (childEnabled && config.child_usage_model.timezone_awareness) {
@@ -2497,6 +2612,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             <div style="margin-bottom: 20px;">
                 <strong>Step 2: Server Configuration</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
+                    ${usingGen4Bridge ? `<strong>Bridge Plan:</strong> ${bridgeSummary}<br>` : ''}
                     • Instance Type: <strong>${costs.instance_type}</strong><br>
                     • Streams per Server: <strong>${costs.sessions_per_host} simultaneous streams</strong><br>
                     • Cost per Server: <strong>$${costs.hourly_rate.toFixed(2)}/hour</strong>
@@ -2602,6 +2718,14 @@ function generateYearOverview(results) {
             const totalStreamingText = totalStreamingMinutes !== null
                 ? formatMinutesAsHoursMinutes(totalStreamingMinutes)
                 : '—';
+            const daysInMonth = getDaysInMonth(month) || 30;
+            const weeklyWatchFactor = 7 / daysInMonth;
+            const dailyWatchTimeText = totalStreamingMinutes !== null
+                ? formatMinutesAsHoursMinutes(totalStreamingMinutes / daysInMonth)
+                : '—';
+            const weeklyWatchTimeText = totalStreamingMinutes !== null
+                ? formatMinutesAsHoursMinutes(totalStreamingMinutes * weeklyWatchFactor)
+                : '—';
 
             const baseUsers = Number(data.users.base_users_before_seasonal) || 0;
             const seasonalMultiplier = Number(data.users.seasonal_multiplier) || 1;
@@ -2610,7 +2734,6 @@ function generateYearOverview(results) {
             const marketingNew = data.users.marketing_details ? Number(data.users.marketing_details.new_users) || 0 : 0;
             const marketingOrganic = data.users.marketing_details ? Number(data.users.marketing_details.organic_growth) || 0 : 0;
             const perUserDailyMinutes = Number(data.users.expected_daily_minutes_per_user) || 0;
-            const daysInMonth = getDaysInMonth(month);
             const peakConcurrent = Number(data.users.peak_concurrent) || 0;
             const peakRatio = Number(data.users.peak_concurrent_ratio);
             const ratioText = Number.isFinite(peakRatio) ? `${(peakRatio * 100).toFixed(2)}%` : 'derived';
@@ -2626,6 +2749,10 @@ function generateYearOverview(results) {
             const storageCost = Number(data.costs.monthly_totals.storage_cost) || 0;
             const totalMonthlyCost = Number(data.costs.monthly_totals.total_monthly_cost) || 0;
             const costPerUser = Number(data.costs.monthly_totals.cost_per_user) || 0;
+            const costPerUserDaily = daysInMonth > 0 ? costPerUser / daysInMonth : 0;
+            const costPerUserWeekly = costPerUserDaily * 7;
+            const bridgeMonths = Number(defaultConfig.infrastructure_specs.months_on_gen4n_before_switch) || 0;
+            const isBridgeMonth = month <= bridgeMonths;
 
             const usersTooltip = escapeTooltipText(
                 `Base active users ${baseUsers.toLocaleString()} × seasonal multiplier ${seasonalMultiplier.toFixed(2)} = ${totalUsers.toLocaleString()} total users\nRetained: ${retainedUsers.toLocaleString()} • Marketing: ${marketingNew.toLocaleString()} • Organic: ${marketingOrganic.toLocaleString()}`
@@ -2649,7 +2776,7 @@ function generateYearOverview(results) {
                 `Weekdays: $${weekdayDailyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })} × 22 = $${(weekdayDailyCost * 22).toLocaleString('en-US', { maximumFractionDigits: 0 })}\nWeekends: $${weekendDailyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })} × 8 = $${(weekendDailyCost * 8).toLocaleString('en-US', { maximumFractionDigits: 0 })}\nStorage: $${storageCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}\nTotal: $${totalMonthlyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}`);
 
             const costPerUserTooltip = totalUsers > 0
-                ? escapeTooltipText(`$${totalMonthlyCost.toLocaleString('en-US', { maximumFractionDigits: 0 })} ÷ ${totalUsers.toLocaleString()} users = $${costPerUser.toFixed(2)} per user`)
+                ? escapeTooltipText(`Daily: $${costPerUserDaily.toFixed(2)} per user\nWeekly: $${costPerUserWeekly.toFixed(2)} per user\nMonthly: $${costPerUser.toFixed(2)} per user`)
                 : '';
 
             overview += `
@@ -2665,7 +2792,7 @@ function generateYearOverview(results) {
                     </div>
                     <div class="metric" data-tooltip="${instanceTooltip}">
                         <span class="metric-label">Server Type</span>
-                        <span class="metric-value">${data.costs.instance_type}</span>
+                        <span class="metric-value">${data.costs.instance_type}${isBridgeMonth ? ' (bridge)' : ''}</span>
                     </div>
                     <div class="metric" data-tooltip="${maxHostsTooltip}">
                         <span class="metric-label">Max Servers</span>
@@ -2675,13 +2802,33 @@ function generateYearOverview(results) {
                         <span class="metric-label">Total Watch Time</span>
                         <span class="metric-value">${totalStreamingText}</span>
                     </div>
-                    <div class="metric" data-tooltip="${monthlyCostTooltip}">
-                        <span class="metric-label">Monthly Cost</span>
-                        <span class="metric-value">$${data.costs.monthly_totals.total_monthly_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
+                    <div class="metric">
+                        <span class="metric-label">Watch Time (Daily)</span>
+                        <span class="metric-value">${dailyWatchTimeText}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Watch Time (Weekly)</span>
+                        <span class="metric-value">${weeklyWatchTimeText}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Watch Time (Monthly)</span>
+                        <span class="metric-value">${totalStreamingText}</span>
                     </div>
                     <div class="metric" data-tooltip="${costPerUserTooltip}">
-                        <span class="metric-label">Cost/User</span>
-                        <span class="metric-value">$${data.costs.monthly_totals.cost_per_user.toFixed(2)}</span>
+                        <span class="metric-label">Infrastructure Cost per User (Daily)</span>
+                        <span class="metric-value">$${costPerUserDaily.toFixed(2)}</span>
+                    </div>
+                    <div class="metric" data-tooltip="${costPerUserTooltip}">
+                        <span class="metric-label">Infrastructure Cost per User (Weekly)</span>
+                        <span class="metric-value">$${costPerUserWeekly.toFixed(2)}</span>
+                    </div>
+                    <div class="metric" data-tooltip="${costPerUserTooltip}">
+                        <span class="metric-label">Infrastructure Cost per User (Monthly)</span>
+                        <span class="metric-value">$${costPerUser.toFixed(2)}</span>
+                    </div>
+                    <div class="metric" data-tooltip="${monthlyCostTooltip}">
+                        <span class="metric-label">Infrastructure Cost (Total Monthly)</span>
+                        <span class="metric-value">$${data.costs.monthly_totals.total_monthly_cost.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
                     </div>
                 </div>
             `;
@@ -2780,22 +2927,25 @@ function generateTrendsChart(results) {
         dataPoints += `
             <circle cx="${x}" cy="${yUsers}" r="4" fill="#3b82f6" stroke="white" stroke-width="2"
                     style="cursor: pointer; transition: all 0.2s ease;"
-                    onmouseover="this.setAttribute('r', '6'); showTooltip(event, 'Month ${month}: ${users[i].toLocaleString()} Users')"
-                    onmouseout="this.setAttribute('r', '4'); hideTooltip()"/>`;
+                    onmouseover="handleTrendHover(event, 'circle', 'Month ${month}: ${users[i].toLocaleString()} Users')"
+                    onmouseout="handleTrendOut(event, 'circle')"/>
+        `;
 
         // Cost points (green squares) with tooltip
         dataPoints += `
             <rect x="${x-3}" y="${yCost-3}" width="6" height="6" fill="#10b981" stroke="white" stroke-width="2"
                   style="cursor: pointer; transition: all 0.2s ease;"
-                  onmouseover="this.setAttribute('width', '8'); this.setAttribute('height', '8'); this.setAttribute('x', '${x-4}'); this.setAttribute('y', '${yCost-4}'); showTooltip(event, 'Month ${month}: $${Math.round(costs[i]).toLocaleString()} Monthly Cost')"
-                  onmouseout="this.setAttribute('width', '6'); this.setAttribute('height', '6'); this.setAttribute('x', '${x-3}'); this.setAttribute('y', '${yCost-3}'); hideTooltip()"/>`;
+                  onmouseover="handleTrendHover(event, 'rect', 'Month ${month}: $${Math.round(costs[i]).toLocaleString()} Monthly Cost')"
+                  onmouseout="handleTrendOut(event, 'rect')"/>
+        `;
 
         // Cost per user points (orange triangles) with tooltip
         dataPoints += `
             <polygon points="${x},${yCostPerUser-4} ${x-4},${yCostPerUser+3} ${x+4},${yCostPerUser+3}" fill="#f59e0b" stroke="white" stroke-width="2"
                      style="cursor: pointer; transition: all 0.2s ease;"
-                     onmouseover="this.setAttribute('transform', 'scale(1.3) translate(${(x-x*1.3)/1.3}, ${(yCostPerUser-yCostPerUser*1.3)/1.3})'); showTooltip(event, 'Month ${month}: $${costPerUser[i].toFixed(2)} per User')"
-                     onmouseout="this.setAttribute('transform', 'scale(1)'); hideTooltip()"/>`;
+                     onmouseover="handleTrendHover(event, 'polygon', 'Month ${month}: $${costPerUser[i].toFixed(2)} per User')"
+                     onmouseout="handleTrendOut(event, 'polygon')"/>
+        `;
     });
 
     return `
@@ -2894,6 +3044,73 @@ function hideTooltip() {
     if (tooltip) {
         tooltip.remove();
     }
+}
+
+function handleTrendHover(event, shape, text) {
+    const target = event.currentTarget;
+    if (!target) {
+        return;
+    }
+
+    switch (shape) {
+        case 'circle':
+            target.setAttribute('r', '6');
+            break;
+        case 'rect':
+            target.dataset.originalX = target.getAttribute('x');
+            target.dataset.originalY = target.getAttribute('y');
+            target.setAttribute('width', '8');
+            target.setAttribute('height', '8');
+            target.setAttribute('x', (parseFloat(target.dataset.originalX) - 1).toString());
+            target.setAttribute('y', (parseFloat(target.dataset.originalY) - 1).toString());
+            break;
+        case 'polygon':
+            target.dataset.originalStroke = target.getAttribute('stroke-width') || '2';
+            target.dataset.originalFill = target.getAttribute('fill') || '#f59e0b';
+            target.setAttribute('stroke-width', '3');
+            target.setAttribute('fill', '#fbbf24');
+            break;
+    }
+
+    showTooltip(event, text);
+}
+
+function handleTrendOut(event, shape) {
+    const target = event.currentTarget;
+    if (!target) {
+        hideTooltip();
+        return;
+    }
+
+    switch (shape) {
+        case 'circle':
+            target.setAttribute('r', '4');
+            break;
+        case 'rect':
+            target.setAttribute('width', '6');
+            target.setAttribute('height', '6');
+            if (target.dataset.originalX) {
+                target.setAttribute('x', target.dataset.originalX);
+            }
+            if (target.dataset.originalY) {
+                target.setAttribute('y', target.dataset.originalY);
+            }
+            break;
+        case 'polygon':
+            if (target.dataset.originalStroke) {
+                target.setAttribute('stroke-width', target.dataset.originalStroke);
+            } else {
+                target.setAttribute('stroke-width', '2');
+            }
+            if (target.dataset.originalFill) {
+                target.setAttribute('fill', target.dataset.originalFill);
+            } else {
+                target.setAttribute('fill', '#f59e0b');
+            }
+            break;
+    }
+
+    hideTooltip();
 }
 
 function generateRevenueAnalysis(results) {
