@@ -1603,16 +1603,24 @@ function gatherConfiguration() {
         config.infrastructure_specs.selected_instance_type = instanceSelect.value;
     }
 
-    // Update basic values
+    // Update basic values - read current_dau from DOM
     config.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
-    config.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
 
     // Update game mode configuration
     const gameModeSelect = document.getElementById('game_mode_selector');
     const gameMode = gameModeSelect ? gameModeSelect.value : 'cocomelon';
     config.game_mode = gameMode;
 
-    const childModelEnabled = (gameMode === 'cocomelon');
+    // Copy model-specific baseline configuration (peak_concurrent_ratio, household_percentage)
+    const isCocomelon = (gameMode === 'cocomelon');
+    const sourceModel = isCocomelon ? config.cocomelon_model : config.all_games_model;
+
+    if (sourceModel && sourceModel.real_data_baseline) {
+        config.real_data_baseline.peak_concurrent_ratio = sourceModel.real_data_baseline.peak_concurrent_ratio;
+        config.real_data_baseline.household_percentage = sourceModel.real_data_baseline.household_percentage;
+    }
+
+    const childModelEnabled = isCocomelon;
     if (childModelEnabled) {
         // Apply hardcoded population-level child behavioral patterns automatically
         const populationModel = config.child_usage_model.population_model.optimal_settings;
@@ -1622,12 +1630,6 @@ function gatherConfiguration() {
         config.child_usage_model.behavioral_model.age_range = "2.5-3.5"; // Use balanced reference group
         config.child_usage_model.behavioral_model.schedule_type = populationModel.primary_schedule_type;
         config.child_usage_model.behavioral_model.nap_time_window = populationModel.default_nap_window;
-
-        // Set generic fallback ratio (not used when child model is enabled)
-        config.real_data_baseline.peak_concurrent_ratio = 0.10;
-    } else {
-        // Use generic model with 10% concurrent ratio
-        config.real_data_baseline.peak_concurrent_ratio = 0.10;
     }
 
     config.growth_assumptions.monthly_growth_rate = parseFloat(document.getElementById('monthly_growth_rate').value);
@@ -1772,9 +1774,6 @@ function autoSaveConfig() {
         if (document.getElementById('current_dau')) {
             currentConfig.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
         }
-        if (document.getElementById('household_percentage')) {
-            currentConfig.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
-        }
         if (document.getElementById('user_retention_rate')) {
             currentConfig.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
         }
@@ -1784,7 +1783,15 @@ function autoSaveConfig() {
         const gameMode = gameModeSelect ? gameModeSelect.value : 'cocomelon';
         currentConfig.game_mode = gameMode;
 
+        // Copy model-specific baseline configuration
         const childModelEnabled = (gameMode === 'cocomelon');
+        const sourceModel = childModelEnabled ? currentConfig.cocomelon_model : currentConfig.all_games_model;
+
+        if (sourceModel && sourceModel.real_data_baseline) {
+            currentConfig.real_data_baseline.peak_concurrent_ratio = sourceModel.real_data_baseline.peak_concurrent_ratio;
+            currentConfig.real_data_baseline.household_percentage = sourceModel.real_data_baseline.household_percentage;
+        }
+
         currentConfig.child_usage_model.enabled = childModelEnabled;
 
     currentConfig.infrastructure_specs.selected_instance_type = defaultConfig.infrastructure_specs.selected_instance_type;
@@ -1815,9 +1822,6 @@ function autoSaveConfig() {
             }
 
             applyChildPatternsToConfig(currentConfig);
-        } else {
-            // Generic model uses 10% concurrent ratio
-            currentConfig.real_data_baseline.peak_concurrent_ratio = 0.10;
         }
 
         // Save to localStorage
@@ -1964,7 +1968,10 @@ function calculateMonthlyUsers(config) {
     const cohorts = [];
     const retentionCurve = marketing.retention_curve || {};
     const defaultRetention = growth.existing_user_retention;
-    const childModelEnabled = config.child_usage_model && config.child_usage_model.enabled;
+
+    // Detect game mode - use baseline peak_concurrent_ratio which is now set correctly by gatherConfiguration()
+    const gameMode = config.game_mode || 'cocomelon';
+    const childModelEnabled = (gameMode === 'cocomelon');
     const childPeakRatio = childModelEnabled
         ? (config.child_usage_model.behavioral_model.base_concurrent_ratio || baseline.peak_concurrent_ratio)
         : baseline.peak_concurrent_ratio;
