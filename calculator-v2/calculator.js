@@ -1175,6 +1175,10 @@ let currentMonth = 1;
 let currentConfig = null;
 
 async function loadInstanceTypesFromConfig() {
+    // PERSISTENCE STRATEGY:
+    // - config.json: Source of truth, NEVER modified, always loads fresh defaults
+    // - localStorage: Stores user changes (survives page reload)
+    // - User changes ONLY exist in localStorage, config.json remains pristine
     try {
         const response = await fetch('config.json', { cache: 'no-store' });
         if (!response.ok) {
@@ -1736,8 +1740,8 @@ function calculateResults() {
     try {
         const config = gatherConfiguration();
 
-        // Save user changes to config.json
-        saveConfigToFile(config);
+        // Save user changes to localStorage only (config.json remains pristine)
+        saveConfigToLocalStorage(config);
 
         const results = runCalculations(config);
         currentConfig = config;
@@ -1749,18 +1753,19 @@ function calculateResults() {
     }
 }
 
-function saveConfigToFile(config) {
+function saveConfigToLocalStorage(config) {
     try {
-        // Auto-save user changes to localStorage for persistence
+        // IMPORTANT: config.json file remains pristine and is never modified
+        // User changes are ONLY saved to browser localStorage for session persistence
         localStorage.setItem('cocomelon-calculator-config', JSON.stringify(config));
 
-        // Also update the defaultConfig in memory so current session uses new values
+        // Update the in-memory defaultConfig so current session uses new values
         Object.assign(defaultConfig, config);
 
-        console.log('💾 Config auto-saved with user changes. Will persist on page reload.');
+        console.log('💾 Settings saved to browser localStorage (config.json remains unchanged).');
 
     } catch (error) {
-        console.warn('Could not save config:', error.message);
+        console.warn('Could not save settings to localStorage:', error.message);
     }
 }
 
