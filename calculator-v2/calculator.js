@@ -1175,6 +1175,10 @@ let currentMonth = 1;
 let currentConfig = null;
 
 async function loadInstanceTypesFromConfig() {
+    // PERSISTENCE STRATEGY:
+    // - config.json: Source of truth, NEVER modified, always loads fresh defaults
+    // - localStorage: Stores user changes (survives page reload)
+    // - User changes ONLY exist in localStorage, config.json remains pristine
     try {
         const response = await fetch('config.json', { cache: 'no-store' });
         if (!response.ok) {
@@ -1184,6 +1188,17 @@ async function loadInstanceTypesFromConfig() {
         const externalConfig = await response.json();
         if (!externalConfig) {
             return;
+        }
+
+        // Load game mode models
+        if (externalConfig.game_mode) {
+            defaultConfig.game_mode = externalConfig.game_mode;
+        }
+        if (externalConfig.cocomelon_model) {
+            defaultConfig.cocomelon_model = externalConfig.cocomelon_model;
+        }
+        if (externalConfig.all_games_model) {
+            defaultConfig.all_games_model = externalConfig.all_games_model;
         }
 
         const infrastructure = externalConfig.infrastructure_specs || {};
@@ -1199,7 +1214,7 @@ async function loadInstanceTypesFromConfig() {
             defaultConfig.infrastructure_specs.selected_instance_type = infrastructure.selected_instance_type;
         }
     } catch (error) {
-        console.warn('Unable to load instance types from config.json:', error.message);
+        console.warn('Unable to load config from config.json:', error.message);
     }
 }
 
@@ -1279,10 +1294,12 @@ function loadDefaultValues() {
     document.getElementById('monthly_growth_rate').value = defaultConfig.growth_assumptions.monthly_growth_rate;
     document.getElementById('user_retention_rate').value = defaultConfig.marketing_acquisition.retention_curve.month_1;
 
-    const childModelSelect = document.getElementById('child_model_enabled');
-    if (childModelSelect) {
-        const enabled = defaultConfig.child_usage_model && defaultConfig.child_usage_model.enabled;
-        childModelSelect.value = enabled ? 'true' : 'false';
+    const gameModeSelect = document.getElementById('game_mode_selector');
+    if (gameModeSelect) {
+        const gameMode = defaultConfig.game_mode || 'cocomelon';
+        gameModeSelect.value = gameMode;
+        // Trigger change event to load correct patterns
+        loadPatternsForGameMode(gameMode);
     }
 
     // Marketing acquisition values are now fixed at 1.0 (simplified model)
@@ -1328,10 +1345,6 @@ function loadDefaultValues() {
     // Update display values and set up event listeners
     updateDisplayValues();
     setupEventListeners();
-
-    if (childModelSelect) {
-        updateHourlyPatternInputs(childModelSelect.value === 'true');
-    }
 }
 
 function updateDisplayValues() {
@@ -1348,12 +1361,28 @@ function setupEventListeners() {
     document.getElementById('household_percentage').addEventListener('input', updateDisplayValues);
     document.getElementById('user_retention_rate').addEventListener('input', updateDisplayValues);
 
-    // Add event listener for child model toggle to update hourly patterns
-    const childModelSelect = document.getElementById('child_model_enabled');
-    if (childModelSelect) {
-        childModelSelect.addEventListener('change', function() {
-            const useChildModel = this.value === 'true';
-            updateHourlyPatternInputs(useChildModel);
+    // Add event listener for game mode toggle to update hourly patterns and UI
+    const gameModeSelect = document.getElementById('game_mode_selector');
+    if (gameModeSelect) {
+        gameModeSelect.addEventListener('change', function() {
+            const gameMode = this.value; // 'cocomelon' or 'all_games'
+
+            // Update explanation boxes visibility
+            const cocoExplanation = document.getElementById('cocomelon_explanation');
+            const allGamesExplanation = document.getElementById('all_games_explanation');
+            if (cocoExplanation && allGamesExplanation) {
+                if (gameMode === 'cocomelon') {
+                    cocoExplanation.style.display = 'block';
+                    allGamesExplanation.style.display = 'none';
+                } else {
+                    cocoExplanation.style.display = 'none';
+                    allGamesExplanation.style.display = 'block';
+                }
+            }
+
+            // Load appropriate patterns from config
+            loadPatternsForGameMode(gameMode);
+            autoSaveConfig();
         });
     }
 
@@ -1460,6 +1489,48 @@ function createHourlyPatternInputs() {
     initializePatternGraph('weekend');
 }
 
+function loadPatternsForGameMode(gameMode) {
+    // Load patterns from config based on selected game mode
+    let weekdayPatternValues, weekendPatternValues;
+
+    // Safety check - ensure models are loaded
+    if (!defaultConfig.cocomelon_model || !defaultConfig.all_games_model) {
+        console.warn('Game mode models not yet loaded, skipping pattern load');
+        return;
+    }
+
+    if (gameMode === 'cocomelon') {
+        weekdayPatternValues = defaultConfig.cocomelon_model.time_zone_patterns.weekday_pattern.hours;
+        weekendPatternValues = defaultConfig.cocomelon_model.time_zone_patterns.weekend_pattern.hours;
+    } else if (gameMode === 'all_games') {
+        weekdayPatternValues = defaultConfig.all_games_model.time_zone_patterns.weekday_pattern.hours;
+        weekendPatternValues = defaultConfig.all_games_model.time_zone_patterns.weekend_pattern.hours;
+    }
+
+    // Update the hourly pattern inputs
+    for (let hour = 0; hour < 24; hour++) {
+        const weekdayInput = document.getElementById(`weekday_${hour}`);
+        if (weekdayInput && weekdayPatternValues) {
+            const value = weekdayPatternValues[hour.toString()];
+            const numericValue = Number(value);
+            const safeValue = Number.isFinite(numericValue) ? numericValue : 0.01;
+            weekdayInput.value = safeValue.toFixed(3);
+        }
+
+        const weekendInput = document.getElementById(`weekend_${hour}`);
+        if (weekendInput && weekendPatternValues) {
+            const value = weekendPatternValues[hour.toString()];
+            const numericValue = Number(value);
+            const safeValue = Number.isFinite(numericValue) ? numericValue : 0.01;
+            weekendInput.value = safeValue.toFixed(3);
+        }
+    }
+
+    // Update the graphs
+    initializePatternGraph('weekday');
+    initializePatternGraph('weekend');
+}
+
 function updateHourlyPatternInputs(useChildModel) {
     const activeConfig = currentConfig || defaultConfig;
 
@@ -1536,14 +1607,24 @@ function gatherConfiguration() {
         config.infrastructure_specs.selected_instance_type = instanceSelect.value;
     }
 
-    // Update basic values
+    // Update basic values - read current_dau from DOM
     config.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
-    config.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
 
-    // Update child usage model configuration
-    const childModelEnabled = document.getElementById('child_model_enabled').value === 'true';
-    config.child_usage_model.enabled = childModelEnabled;
+    // Update game mode configuration
+    const gameModeSelect = document.getElementById('game_mode_selector');
+    const gameMode = gameModeSelect ? gameModeSelect.value : 'cocomelon';
+    config.game_mode = gameMode;
 
+    // Copy model-specific baseline configuration (peak_concurrent_ratio, household_percentage)
+    const isCocomelon = (gameMode === 'cocomelon');
+    const sourceModel = isCocomelon ? config.cocomelon_model : config.all_games_model;
+
+    if (sourceModel && sourceModel.real_data_baseline) {
+        config.real_data_baseline.peak_concurrent_ratio = sourceModel.real_data_baseline.peak_concurrent_ratio;
+        config.real_data_baseline.household_percentage = sourceModel.real_data_baseline.household_percentage;
+    }
+
+    const childModelEnabled = isCocomelon;
     if (childModelEnabled) {
         // Apply hardcoded population-level child behavioral patterns automatically
         const populationModel = config.child_usage_model.population_model.optimal_settings;
@@ -1553,12 +1634,6 @@ function gatherConfiguration() {
         config.child_usage_model.behavioral_model.age_range = "2.5-3.5"; // Use balanced reference group
         config.child_usage_model.behavioral_model.schedule_type = populationModel.primary_schedule_type;
         config.child_usage_model.behavioral_model.nap_time_window = populationModel.default_nap_window;
-
-        // Set generic fallback ratio (not used when child model is enabled)
-        config.real_data_baseline.peak_concurrent_ratio = 0.10;
-    } else {
-        // Use generic model with 10% concurrent ratio
-        config.real_data_baseline.peak_concurrent_ratio = 0.10;
     }
 
     config.growth_assumptions.monthly_growth_rate = parseFloat(document.getElementById('monthly_growth_rate').value);
@@ -1665,8 +1740,8 @@ function calculateResults() {
     try {
         const config = gatherConfiguration();
 
-        // Save user changes to config.json
-        saveConfigToFile(config);
+        // Save user changes to localStorage only (config.json remains pristine)
+        saveConfigToLocalStorage(config);
 
         const results = runCalculations(config);
         currentConfig = config;
@@ -1678,18 +1753,19 @@ function calculateResults() {
     }
 }
 
-function saveConfigToFile(config) {
+function saveConfigToLocalStorage(config) {
     try {
-        // Auto-save user changes to localStorage for persistence
+        // IMPORTANT: config.json file remains pristine and is never modified
+        // User changes are ONLY saved to browser localStorage for session persistence
         localStorage.setItem('cocomelon-calculator-config', JSON.stringify(config));
 
-        // Also update the defaultConfig in memory so current session uses new values
+        // Update the in-memory defaultConfig so current session uses new values
         Object.assign(defaultConfig, config);
 
-        console.log('💾 Config auto-saved with user changes. Will persist on page reload.');
+        console.log('💾 Settings saved to browser localStorage (config.json remains unchanged).');
 
     } catch (error) {
-        console.warn('Could not save config:', error.message);
+        console.warn('Could not save settings to localStorage:', error.message);
     }
 }
 
@@ -1703,16 +1779,23 @@ function autoSaveConfig() {
         if (document.getElementById('current_dau')) {
             currentConfig.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
         }
-        if (document.getElementById('household_percentage')) {
-            currentConfig.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
-        }
         if (document.getElementById('user_retention_rate')) {
             currentConfig.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
         }
 
-        // Update child model settings - simplified to just read toggle
-        const childModelEnabled = document.getElementById('child_model_enabled') &&
-                                 document.getElementById('child_model_enabled').value === 'true';
+        // Update game mode settings
+        const gameModeSelect = document.getElementById('game_mode_selector');
+        const gameMode = gameModeSelect ? gameModeSelect.value : 'cocomelon';
+        currentConfig.game_mode = gameMode;
+
+        // Copy model-specific baseline configuration
+        const childModelEnabled = (gameMode === 'cocomelon');
+        const sourceModel = childModelEnabled ? currentConfig.cocomelon_model : currentConfig.all_games_model;
+
+        if (sourceModel && sourceModel.real_data_baseline) {
+            currentConfig.real_data_baseline.peak_concurrent_ratio = sourceModel.real_data_baseline.peak_concurrent_ratio;
+            currentConfig.real_data_baseline.household_percentage = sourceModel.real_data_baseline.household_percentage;
+        }
 
         currentConfig.child_usage_model.enabled = childModelEnabled;
 
@@ -1744,9 +1827,6 @@ function autoSaveConfig() {
             }
 
             applyChildPatternsToConfig(currentConfig);
-        } else {
-            // Generic model uses 10% concurrent ratio
-            currentConfig.real_data_baseline.peak_concurrent_ratio = 0.10;
         }
 
         // Save to localStorage
@@ -1893,7 +1973,10 @@ function calculateMonthlyUsers(config) {
     const cohorts = [];
     const retentionCurve = marketing.retention_curve || {};
     const defaultRetention = growth.existing_user_retention;
-    const childModelEnabled = config.child_usage_model && config.child_usage_model.enabled;
+
+    // Detect game mode - use baseline peak_concurrent_ratio which is now set correctly by gatherConfiguration()
+    const gameMode = config.game_mode || 'cocomelon';
+    const childModelEnabled = (gameMode === 'cocomelon');
     const childPeakRatio = childModelEnabled
         ? (config.child_usage_model.behavioral_model.base_concurrent_ratio || baseline.peak_concurrent_ratio)
         : baseline.peak_concurrent_ratio;
@@ -2428,7 +2511,8 @@ function generateCalculationBreakdown(monthData, month, allResults) {
     const users = monthData.users;
     const costs = monthData.costs;
     const config = currentConfig || defaultConfig;
-    const childEnabled = config.child_usage_model && config.child_usage_model.enabled;
+    const gameMode = config.game_mode || 'cocomelon';
+    const isCocomelon = gameMode === 'cocomelon';
     const growthRatePercent = (config.growth_assumptions.monthly_growth_rate * 100).toFixed(1);
     const ratioFromUsers = Number.isFinite(users.peak_concurrent_ratio)
         ? users.peak_concurrent_ratio
@@ -2442,9 +2526,11 @@ function generateCalculationBreakdown(monthData, month, allResults) {
         ? users.expected_daily_minutes_per_user
         : null;
 
+    // Load timezone info for both game modes
     let timezoneSummary = '';
-    if (childEnabled && config.child_usage_model.timezone_awareness) {
-        const distribution = config.child_usage_model.timezone_awareness.timezone_distribution || {};
+    const modelConfig = isCocomelon ? config.cocomelon_model : config.all_games_model;
+    if (modelConfig && modelConfig.time_zone_patterns && modelConfig.time_zone_patterns.timezone_distribution) {
+        const distribution = modelConfig.time_zone_patterns.timezone_distribution;
         const parts = Object.entries(distribution).map(([key, value]) => {
             const label = key.charAt(0).toUpperCase() + key.slice(1);
             const weight = value.percentage !== undefined ? value.percentage : (value.share || 0);
@@ -2478,8 +2564,10 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
                     ${month === 1 ?
                         (() => {
-                            const baselineHouseholds = Math.max(users.base_users_before_seasonal - users.marketing_details.new_users, 0);
-                            return `• Launch Household Base: <strong>${Math.round(baselineHouseholds).toLocaleString()}</strong> homes<br>
+                            const baselineUsers = Math.max(users.base_users_before_seasonal - users.marketing_details.new_users, 0);
+                            const userLabel = isCocomelon ? 'Household Base' : 'User Base';
+                            const userUnit = isCocomelon ? 'homes' : 'users';
+                            return `• Launch ${userLabel}: <strong>${Math.round(baselineUsers).toLocaleString()}</strong> ${userUnit}<br>
                                     • Launch Marketing Adds: <strong>${users.marketing_details.new_users.toLocaleString()}</strong><br>
                                     • Pre-seasonal Active Base: <strong>${users.base_users_before_seasonal.toLocaleString()}</strong><br>`;
                         })() :
@@ -2506,20 +2594,25 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             <div style="margin-bottom: 20px;">
                 <strong>Step 3: Timezone-Aware Usage Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
-                    ${childEnabled ?
-                        `<strong>Child Model - Local Time Patterns with Timezone Distribution:</strong><br>
-                         • <strong>Pattern Logic:</strong> Your hourly patterns represent LOCAL TIME behavior (17:00 = 5 PM local anywhere)<br>
-                         • <strong>Behavioural Inputs:</strong> Schedule windows, age cohorts, household routines, and parental stress multipliers all feed this curve<br>
+                    ${isCocomelon ?
+                        `<strong>🧸 CoComelon Model - Child Streaming with Local Time Patterns:</strong><br>
+                         • <strong>Pattern Logic:</strong> Hourly patterns represent LOCAL TIME behavior (6 PM = dinner time local anywhere)<br>
+                         • <strong>Behavioral Inputs:</strong> Nap times, bedtime routines, age-appropriate schedules, parental supervision patterns<br>
                          ${timezoneSummary ? `• <strong>Timezone Distribution:</strong> ${timezoneSummary}<br>` : ''}
-                         • <strong>Example:</strong> If you set 5 PM = 1.0, this applies to 5 PM local in each timezone<br>
-                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (5 PM in each timezone)<br>
-                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously<br>
+                         • <strong>Example:</strong> Peak at 6 PM local applies to 6 PM in each timezone<br>
+                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (6 PM Eastern → 6 PM Pacific)<br>
+                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously (~8% of DAU)<br>
                          • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
-                         • <em>Cost savings come from timezone staggering of identical local-time patterns</em>` :
-                        `<strong>Generic Model (No Timezone Staggering):</strong><br>
-                         • All users treated as Eastern timezone<br>
-                         • Peak hours create uniform demand spikes<br>
-                         • Higher infrastructure costs due to synchronous peaks`
+                         • <em>Cost savings from timezone staggering of child-focused usage patterns</em>` :
+                        `<strong>🎮 All Games Model - Adult Gaming with Local Time Patterns:</strong><br>
+                         • <strong>Pattern Logic:</strong> Hourly patterns represent LOCAL TIME behavior (4 PM = afternoon gaming local anywhere)<br>
+                         • <strong>Behavioral Inputs:</strong> Real production data from Amplitude analytics (Sept 30 - Oct 7, 2025)<br>
+                         ${timezoneSummary ? `• <strong>Timezone Distribution:</strong> ${timezoneSummary}<br>` : ''}
+                         • <strong>Example:</strong> Peak at 4 PM local applies to 4 PM in each timezone<br>
+                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (4 PM Eastern → 4 PM Pacific)<br>
+                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously (~15% of DAU)<br>
+                         • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
+                         • <em>Cost savings from timezone staggering of adult gaming patterns with higher engagement</em>`
                     }
                 </div>
             </div>
