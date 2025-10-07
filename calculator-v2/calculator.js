@@ -1279,10 +1279,12 @@ function loadDefaultValues() {
     document.getElementById('monthly_growth_rate').value = defaultConfig.growth_assumptions.monthly_growth_rate;
     document.getElementById('user_retention_rate').value = defaultConfig.marketing_acquisition.retention_curve.month_1;
 
-    const childModelSelect = document.getElementById('child_model_enabled');
-    if (childModelSelect) {
-        const enabled = defaultConfig.child_usage_model && defaultConfig.child_usage_model.enabled;
-        childModelSelect.value = enabled ? 'true' : 'false';
+    const gameModeSelect = document.getElementById('game_mode_selector');
+    if (gameModeSelect) {
+        const gameMode = defaultConfig.game_mode || 'cocomelon';
+        gameModeSelect.value = gameMode;
+        // Trigger change event to load correct patterns
+        loadPatternsForGameMode(gameMode);
     }
 
     // Marketing acquisition values are now fixed at 1.0 (simplified model)
@@ -1348,12 +1350,28 @@ function setupEventListeners() {
     document.getElementById('household_percentage').addEventListener('input', updateDisplayValues);
     document.getElementById('user_retention_rate').addEventListener('input', updateDisplayValues);
 
-    // Add event listener for child model toggle to update hourly patterns
-    const childModelSelect = document.getElementById('child_model_enabled');
-    if (childModelSelect) {
-        childModelSelect.addEventListener('change', function() {
-            const useChildModel = this.value === 'true';
-            updateHourlyPatternInputs(useChildModel);
+    // Add event listener for game mode toggle to update hourly patterns and UI
+    const gameModeSelect = document.getElementById('game_mode_selector');
+    if (gameModeSelect) {
+        gameModeSelect.addEventListener('change', function() {
+            const gameMode = this.value; // 'cocomelon' or 'all_games'
+
+            // Update explanation boxes visibility
+            const cocoExplanation = document.getElementById('cocomelon_explanation');
+            const allGamesExplanation = document.getElementById('all_games_explanation');
+            if (cocoExplanation && allGamesExplanation) {
+                if (gameMode === 'cocomelon') {
+                    cocoExplanation.style.display = 'block';
+                    allGamesExplanation.style.display = 'none';
+                } else {
+                    cocoExplanation.style.display = 'none';
+                    allGamesExplanation.style.display = 'block';
+                }
+            }
+
+            // Load appropriate patterns from config
+            loadPatternsForGameMode(gameMode);
+            autoSaveConfig();
         });
     }
 
@@ -1460,6 +1478,42 @@ function createHourlyPatternInputs() {
     initializePatternGraph('weekend');
 }
 
+function loadPatternsForGameMode(gameMode) {
+    // Load patterns from config based on selected game mode
+    let weekdayPatternValues, weekendPatternValues;
+
+    if (gameMode === 'cocomelon') {
+        weekdayPatternValues = defaultConfig.cocomelon_model.time_zone_patterns.weekday_pattern.hours;
+        weekendPatternValues = defaultConfig.cocomelon_model.time_zone_patterns.weekend_pattern.hours;
+    } else if (gameMode === 'all_games') {
+        weekdayPatternValues = defaultConfig.all_games_model.time_zone_patterns.weekday_pattern.hours;
+        weekendPatternValues = defaultConfig.all_games_model.time_zone_patterns.weekend_pattern.hours;
+    }
+
+    // Update the hourly pattern inputs
+    for (let hour = 0; hour < 24; hour++) {
+        const weekdayInput = document.getElementById(`weekday_${hour}`);
+        if (weekdayInput && weekdayPatternValues) {
+            const value = weekdayPatternValues[hour.toString()];
+            const numericValue = Number(value);
+            const safeValue = Number.isFinite(numericValue) ? numericValue : 0.01;
+            weekdayInput.value = safeValue.toFixed(3);
+        }
+
+        const weekendInput = document.getElementById(`weekend_${hour}`);
+        if (weekendInput && weekendPatternValues) {
+            const value = weekendPatternValues[hour.toString()];
+            const numericValue = Number(value);
+            const safeValue = Number.isFinite(numericValue) ? numericValue : 0.01;
+            weekendInput.value = safeValue.toFixed(3);
+        }
+    }
+
+    // Update the graphs
+    initializePatternGraph('weekday');
+    initializePatternGraph('weekend');
+}
+
 function updateHourlyPatternInputs(useChildModel) {
     const activeConfig = currentConfig || defaultConfig;
 
@@ -1540,10 +1594,12 @@ function gatherConfiguration() {
     config.real_data_baseline.current_dau = parseInt(document.getElementById('current_dau').value);
     config.real_data_baseline.household_percentage = parseFloat(document.getElementById('household_percentage').value);
 
-    // Update child usage model configuration
-    const childModelEnabled = document.getElementById('child_model_enabled').value === 'true';
-    config.child_usage_model.enabled = childModelEnabled;
+    // Update game mode configuration
+    const gameModeSelect = document.getElementById('game_mode_selector');
+    const gameMode = gameModeSelect ? gameModeSelect.value : 'cocomelon';
+    config.game_mode = gameMode;
 
+    const childModelEnabled = (gameMode === 'cocomelon');
     if (childModelEnabled) {
         // Apply hardcoded population-level child behavioral patterns automatically
         const populationModel = config.child_usage_model.population_model.optimal_settings;
@@ -1710,10 +1766,12 @@ function autoSaveConfig() {
             currentConfig.marketing_acquisition.retention_curve.month_1 = parseFloat(document.getElementById('user_retention_rate').value);
         }
 
-        // Update child model settings - simplified to just read toggle
-        const childModelEnabled = document.getElementById('child_model_enabled') &&
-                                 document.getElementById('child_model_enabled').value === 'true';
+        // Update game mode settings
+        const gameModeSelect = document.getElementById('game_mode_selector');
+        const gameMode = gameModeSelect ? gameModeSelect.value : 'cocomelon';
+        currentConfig.game_mode = gameMode;
 
+        const childModelEnabled = (gameMode === 'cocomelon');
         currentConfig.child_usage_model.enabled = childModelEnabled;
 
     currentConfig.infrastructure_specs.selected_instance_type = defaultConfig.infrastructure_specs.selected_instance_type;

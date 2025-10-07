@@ -1,8 +1,174 @@
 {
-  "real_data_baseline": {
-    "current_dau": 4140,
-    "household_percentage": 0.1,
-    "peak_concurrent_ratio": 0.1
+  "game_mode": "cocomelon",
+  "cocomelon_model": {
+    "description": "Child-focused streaming with child behavior patterns (ages 1.5-5)",
+    "real_data_baseline": {
+      "current_dau": 4140,
+      "household_percentage": 0.1,
+      "peak_concurrent_ratio": 0.08
+    },
+    "time_zone_patterns": {
+      "weekday_pattern": {
+        "hours": {
+          "0": 0.006,
+          "1": 0.006,
+          "2": 0.006,
+          "3": 0.006,
+          "4": 0.006,
+          "5": 0.01,
+          "6": 0.05,
+          "7": 0.25,
+          "8": 0.3,
+          "9": 0.05,
+          "10": 0.01,
+          "11": 0.01,
+          "12": 0.01,
+          "13": 0.01,
+          "14": 0.01,
+          "15": 0.35,
+          "16": 0.5,
+          "17": 1,
+          "18": 1,
+          "19": 0.6,
+          "20": 0.1,
+          "21": 0.006,
+          "22": 0.006,
+          "23": 0.006
+        }
+      },
+      "weekend_pattern": {
+        "hours": {
+          "0": 0.002,
+          "1": 0.002,
+          "2": 0.002,
+          "3": 0.002,
+          "4": 0.002,
+          "5": 0.002,
+          "6": 0.01,
+          "7": 0.15,
+          "8": 0.35,
+          "9": 0.5,
+          "10": 0.6,
+          "11": 0.65,
+          "12": 0.7,
+          "13": 0.75,
+          "14": 0.7,
+          "15": 0.65,
+          "16": 0.7,
+          "17": 0.75,
+          "18": 0.7,
+          "19": 0.55,
+          "20": 0.25,
+          "21": 0.002,
+          "22": 0.002,
+          "23": 0.002
+        }
+      },
+      "timezone_distribution": {
+        "eastern": {
+          "percentage": 0.47,
+          "utc_offset": -5
+        },
+        "central": {
+          "percentage": 0.29,
+          "utc_offset": -6
+        },
+        "mountain": {
+          "percentage": 0.07,
+          "utc_offset": -7
+        },
+        "pacific": {
+          "percentage": 0.17,
+          "utc_offset": -8
+        }
+      }
+    }
+  },
+  "all_games_model": {
+    "description": "Adult gaming portfolio with real production usage data (not including CoComelon)",
+    "real_data_baseline": {
+      "current_dau": 4140,
+      "household_percentage": 1.0,
+      "peak_concurrent_ratio": 0.15
+    },
+    "time_zone_patterns": {
+      "weekday_pattern": {
+        "description": "Adult weekday gaming: gradual buildup with 4 PM peak",
+        "hours": {
+          "0": 0.097,
+          "1": 0.088,
+          "2": 0.091,
+          "3": 0.107,
+          "4": 0.138,
+          "5": 0.163,
+          "6": 0.153,
+          "7": 0.161,
+          "8": 0.194,
+          "9": 0.19,
+          "10": 0.213,
+          "11": 0.256,
+          "12": 0.328,
+          "13": 0.442,
+          "14": 0.475,
+          "15": 0.732,
+          "16": 1.0,
+          "17": 0.948,
+          "18": 0.892,
+          "19": 0.73,
+          "20": 0.566,
+          "21": 0.353,
+          "22": 0.243,
+          "23": 0.158
+        }
+      },
+      "weekend_pattern": {
+        "description": "Adult weekend gaming: elevated morning/daytime with 4 PM peak",
+        "hours": {
+          "0": 0.152,
+          "1": 0.129,
+          "2": 0.115,
+          "3": 0.108,
+          "4": 0.149,
+          "5": 0.222,
+          "6": 0.352,
+          "7": 0.398,
+          "8": 0.4,
+          "9": 0.456,
+          "10": 0.491,
+          "11": 0.582,
+          "12": 0.537,
+          "13": 0.623,
+          "14": 0.693,
+          "15": 0.74,
+          "16": 1.0,
+          "17": 0.94,
+          "18": 0.929,
+          "19": 0.805,
+          "20": 0.69,
+          "21": 0.473,
+          "22": 0.329,
+          "23": 0.218
+        }
+      },
+      "timezone_distribution": {
+        "eastern": {
+          "percentage": 0.47,
+          "utc_offset": -5
+        },
+        "central": {
+          "percentage": 0.29,
+          "utc_offset": -6
+        },
+        "mountain": {
+          "percentage": 0.07,
+          "utc_offset": -7
+        },
+        "pacific": {
+          "percentage": 0.17,
+          "utc_offset": -8
+        }
+      }
+    }
   },
   "growth_assumptions": {
     "monthly_growth_rate": 0.2,
@@ -47,64 +213,6 @@
       "steady_state": 0.76
     }
   },
-  "time_zone_patterns": {
-    "weekday_pattern": {
-      "hours": {
-        "0": 0.006,
-        "1": 0.006,
-        "2": 0.006,
-        "3": 0.006,
-        "4": 0.006,
-        "5": 0.01,
-        "6": 0.05,
-        "7": 0.25,
-        "8": 0.3,
-        "9": 0.05,
-        "10": 0.01,
-        "11": 0.01,
-        "12": 0.01,
-        "13": 0.01,
-        "14": 0.01,
-        "15": 0.35,
-        "16": 0.5,
-        "17": 1,
-        "18": 1,
-        "19": 0.6,
-        "20": 0.1,
-        "21": 0.006,
-        "22": 0.006,
-        "23": 0.006
-      }
-    },
-    "weekend_pattern": {
-      "hours": {
-        "0": 0.002,
-        "1": 0.002,
-        "2": 0.002,
-        "3": 0.002,
-        "4": 0.002,
-        "5": 0.002,
-        "6": 0.01,
-        "7": 0.15,
-        "8": 0.35,
-        "9": 0.5,
-        "10": 0.6,
-        "11": 0.65,
-        "12": 0.7,
-        "13": 0.75,
-        "14": 0.7,
-        "15": 0.65,
-        "16": 0.7,
-        "17": 0.75,
-        "18": 0.7,
-        "19": 0.55,
-        "20": 0.25,
-        "21": 0.002,
-        "22": 0.002,
-        "23": 0.002
-      }
-    }
-  },
   "infrastructure_specs": {
     "instance_types": {
       "gen4n_high": {
@@ -128,10 +236,9 @@
       "g6n_high": {
         "description": "NVIDIA T4 - High capacity",
         "sessions_per_host": 6,
-        "hourly_rate": 1.00,
+        "hourly_rate": 1.0,
         "available_from_month": 1
       }
-
     },
     "capacity_planning": {
       "always_on_percentage": 0.3,
