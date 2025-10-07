@@ -1186,6 +1186,17 @@ async function loadInstanceTypesFromConfig() {
             return;
         }
 
+        // Load game mode models
+        if (externalConfig.game_mode) {
+            defaultConfig.game_mode = externalConfig.game_mode;
+        }
+        if (externalConfig.cocomelon_model) {
+            defaultConfig.cocomelon_model = externalConfig.cocomelon_model;
+        }
+        if (externalConfig.all_games_model) {
+            defaultConfig.all_games_model = externalConfig.all_games_model;
+        }
+
         const infrastructure = externalConfig.infrastructure_specs || {};
         const externalInstances = infrastructure.instance_types;
 
@@ -1199,7 +1210,7 @@ async function loadInstanceTypesFromConfig() {
             defaultConfig.infrastructure_specs.selected_instance_type = infrastructure.selected_instance_type;
         }
     } catch (error) {
-        console.warn('Unable to load instance types from config.json:', error.message);
+        console.warn('Unable to load config from config.json:', error.message);
     }
 }
 
@@ -1330,10 +1341,6 @@ function loadDefaultValues() {
     // Update display values and set up event listeners
     updateDisplayValues();
     setupEventListeners();
-
-    if (childModelSelect) {
-        updateHourlyPatternInputs(childModelSelect.value === 'true');
-    }
 }
 
 function updateDisplayValues() {
@@ -1481,6 +1488,12 @@ function createHourlyPatternInputs() {
 function loadPatternsForGameMode(gameMode) {
     // Load patterns from config based on selected game mode
     let weekdayPatternValues, weekendPatternValues;
+
+    // Safety check - ensure models are loaded
+    if (!defaultConfig.cocomelon_model || !defaultConfig.all_games_model) {
+        console.warn('Game mode models not yet loaded, skipping pattern load');
+        return;
+    }
 
     if (gameMode === 'cocomelon') {
         weekdayPatternValues = defaultConfig.cocomelon_model.time_zone_patterns.weekday_pattern.hours;
