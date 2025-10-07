@@ -2499,7 +2499,8 @@ function generateCalculationBreakdown(monthData, month, allResults) {
     const users = monthData.users;
     const costs = monthData.costs;
     const config = currentConfig || defaultConfig;
-    const childEnabled = config.child_usage_model && config.child_usage_model.enabled;
+    const gameMode = config.game_mode || 'cocomelon';
+    const isCocomelon = gameMode === 'cocomelon';
     const growthRatePercent = (config.growth_assumptions.monthly_growth_rate * 100).toFixed(1);
     const ratioFromUsers = Number.isFinite(users.peak_concurrent_ratio)
         ? users.peak_concurrent_ratio
@@ -2513,9 +2514,11 @@ function generateCalculationBreakdown(monthData, month, allResults) {
         ? users.expected_daily_minutes_per_user
         : null;
 
+    // Load timezone info for both game modes
     let timezoneSummary = '';
-    if (childEnabled && config.child_usage_model.timezone_awareness) {
-        const distribution = config.child_usage_model.timezone_awareness.timezone_distribution || {};
+    const modelConfig = isCocomelon ? config.cocomelon_model : config.all_games_model;
+    if (modelConfig && modelConfig.time_zone_patterns && modelConfig.time_zone_patterns.timezone_distribution) {
+        const distribution = modelConfig.time_zone_patterns.timezone_distribution;
         const parts = Object.entries(distribution).map(([key, value]) => {
             const label = key.charAt(0).toUpperCase() + key.slice(1);
             const weight = value.percentage !== undefined ? value.percentage : (value.share || 0);
@@ -2549,8 +2552,10 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
                     ${month === 1 ?
                         (() => {
-                            const baselineHouseholds = Math.max(users.base_users_before_seasonal - users.marketing_details.new_users, 0);
-                            return `• Launch Household Base: <strong>${Math.round(baselineHouseholds).toLocaleString()}</strong> homes<br>
+                            const baselineUsers = Math.max(users.base_users_before_seasonal - users.marketing_details.new_users, 0);
+                            const userLabel = isCocomelon ? 'Household Base' : 'User Base';
+                            const userUnit = isCocomelon ? 'homes' : 'users';
+                            return `• Launch ${userLabel}: <strong>${Math.round(baselineUsers).toLocaleString()}</strong> ${userUnit}<br>
                                     • Launch Marketing Adds: <strong>${users.marketing_details.new_users.toLocaleString()}</strong><br>
                                     • Pre-seasonal Active Base: <strong>${users.base_users_before_seasonal.toLocaleString()}</strong><br>`;
                         })() :
@@ -2577,20 +2582,25 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             <div style="margin-bottom: 20px;">
                 <strong>Step 3: Timezone-Aware Usage Calculation</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
-                    ${childEnabled ?
-                        `<strong>Child Model - Local Time Patterns with Timezone Distribution:</strong><br>
-                         • <strong>Pattern Logic:</strong> Your hourly patterns represent LOCAL TIME behavior (17:00 = 5 PM local anywhere)<br>
-                         • <strong>Behavioural Inputs:</strong> Schedule windows, age cohorts, household routines, and parental stress multipliers all feed this curve<br>
+                    ${isCocomelon ?
+                        `<strong>🧸 CoComelon Model - Child Streaming with Local Time Patterns:</strong><br>
+                         • <strong>Pattern Logic:</strong> Hourly patterns represent LOCAL TIME behavior (6 PM = dinner time local anywhere)<br>
+                         • <strong>Behavioral Inputs:</strong> Nap times, bedtime routines, age-appropriate schedules, parental supervision patterns<br>
                          ${timezoneSummary ? `• <strong>Timezone Distribution:</strong> ${timezoneSummary}<br>` : ''}
-                         • <strong>Example:</strong> If you set 5 PM = 1.0, this applies to 5 PM local in each timezone<br>
-                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (5 PM in each timezone)<br>
-                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously<br>
+                         • <strong>Example:</strong> Peak at 6 PM local applies to 6 PM in each timezone<br>
+                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (6 PM Eastern → 6 PM Pacific)<br>
+                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously (~8% of DAU)<br>
                          • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
-                         • <em>Cost savings come from timezone staggering of identical local-time patterns</em>` :
-                        `<strong>Generic Model (No Timezone Staggering):</strong><br>
-                         • All users treated as Eastern timezone<br>
-                         • Peak hours create uniform demand spikes<br>
-                         • Higher infrastructure costs due to synchronous peaks`
+                         • <em>Cost savings from timezone staggering of child-focused usage patterns</em>` :
+                        `<strong>🎮 All Games Model - Adult Gaming with Local Time Patterns:</strong><br>
+                         • <strong>Pattern Logic:</strong> Hourly patterns represent LOCAL TIME behavior (4 PM = afternoon gaming local anywhere)<br>
+                         • <strong>Behavioral Inputs:</strong> Real production data from Amplitude analytics (Sept 30 - Oct 7, 2025)<br>
+                         ${timezoneSummary ? `• <strong>Timezone Distribution:</strong> ${timezoneSummary}<br>` : ''}
+                         • <strong>Example:</strong> Peak at 4 PM local applies to 4 PM in each timezone<br>
+                         • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (4 PM Eastern → 4 PM Pacific)<br>
+                         • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously (~15% of DAU)<br>
+                         • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
+                         • <em>Cost savings from timezone staggering of adult gaming patterns with higher engagement</em>`
                     }
                 </div>
             </div>
