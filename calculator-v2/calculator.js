@@ -2261,7 +2261,7 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
 
         const isWeekdayPeak = weekdayMultiplier >= peakMultiplierThreshold && weekdayHosts > 0;
         if (isWeekdayPeak) {
-            weekdayHosts = Math.ceil(weekdayHosts * (1 + peakBuffer));
+            weekdayHosts = weekdayHosts + Math.ceil(weekdayHosts * peakBuffer);
         }
 
         // Apply HA rules once at the end of the calculation for the hour
@@ -2298,7 +2298,7 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
 
         const isWeekendPeak = weekendMultiplier >= peakMultiplierThreshold && weekendHosts > 0;
         if (isWeekendPeak) {
-            weekendHosts = Math.ceil(weekendHosts * (1 + peakBuffer));
+            weekendHosts = weekendHosts + Math.ceil(weekendHosts * peakBuffer);
         }
 
         // Apply HA rules once at the end of the calculation for the hour

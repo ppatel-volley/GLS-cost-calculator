@@ -461,7 +461,7 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
         let weekdayHosts = Math.ceil(weekdayConcurrent / sessionsPerHost);
         
         if (weekdayMultiplier > 0.5) {
-            weekdayHosts = Math.floor(weekdayHosts * (1 + peakBuffer));
+            weekdayHosts = weekdayHosts + Math.ceil(weekdayHosts * peakBuffer);
             hourlyCosts.peak_hours_info.weekday_peak_hours.push({
                 hour: hour,
                 time: formatTimeEST(hour),
@@ -487,7 +487,7 @@ function calculateHourlyCosts(month, monthlyUsers, config) {
         let weekendHosts = Math.ceil(weekendConcurrent / sessionsPerHost);
         
         if (weekendMultiplier > 0.5) {
-            weekendHosts = Math.floor(weekendHosts * (1 + peakBuffer));
+            weekendHosts = weekendHosts + Math.ceil(weekendHosts * peakBuffer);
             hourlyCosts.peak_hours_info.weekend_peak_hours.push({
                 hour: hour,
                 time: formatTimeEST(hour),
