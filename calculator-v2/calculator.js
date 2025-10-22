@@ -2336,8 +2336,8 @@ function displayResults(results) {
                     <span class="metric-value">${monthData.users.peak_concurrent.toLocaleString()}</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Max Servers Needed</span>
-                    <span class="metric-value">${monthData.costs.peak_hours_info.max_hosts_needed}</span>
+                    <span class="metric-label">Max Streams Needed</span>
+                    <span class="metric-value">${monthData.costs.peak_hours_info.max_streams_needed}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Seasonal Multiplier</span>
@@ -2348,24 +2348,20 @@ function displayResults(results) {
             <div class="result-card">
                 <h4>💻 Server Configuration</h4>
                 <div class="metric">
-                    <span class="metric-label">Instance Type</span>
-                    <span class="metric-value" data-tooltip="${escapeTooltipText(`EC2: ${monthData.costs.selected_instance.ec2_instance_type}\nGPU: ${monthData.costs.selected_instance.gpu}\nTenancy: ${monthData.costs.selected_instance.tenancy_ratio}\nRegion: ${monthData.costs.selected_instance.pricing_region}`)}">${monthData.costs.selected_instance.display_name}</span>
+                    <span class="metric-label">Stream Class</span>
+                    <span class="metric-value" data-tooltip="${escapeTooltipText(`GPU: ${monthData.costs.selected_instance.gpu}\nRegion: ${monthData.costs.selected_instance.pricing_region}`)}">${monthData.costs.selected_instance.display_name}</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Sessions per Server</span>
-                    <span class="metric-value">${monthData.costs.sessions_per_host}</span>
+                    <span class="metric-label">Cost per Stream</span>
+                    <span class="metric-value">$${monthData.costs.hourly_rate_per_stream.toFixed(4)}/hour</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Hourly Rate per Server</span>
-                    <span class="metric-value">$${monthData.costs.hourly_rate.toFixed(2)}</span>
+                    <span class="metric-label">Always-On Streams</span>
+                    <span class="metric-value">${monthData.costs.baseline_streams}</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Always-On Servers</span>
-                    <span class="metric-value">${monthData.costs.baseline_hosts}</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Cost Efficiency</span>
-                    <span class="metric-value">${(monthData.costs.sessions_per_host / monthData.costs.hourly_rate).toFixed(1)} streams/$</span>
+                    <span class="metric-label">Peak Streams Needed</span>
+                    <span class="metric-value">${monthData.costs.peak_hours_info.max_streams_needed}</span>
                 </div>
             </div>
 
@@ -2437,16 +2433,16 @@ function displayResults(results) {
         <div class="cost-highlight">
             <h4>💡 Key Infrastructure Insights for Month ${currentMonth}</h4>
             <div class="metric">
-                <span class="metric-label">Peak weekday hours need</span>
-                <span class="metric-value">${monthData.costs.peak_hours_info.max_hosts_needed} servers (${monthData.costs.peak_hours_info.weekday_peak_hours.length} hours)</span>
+                <span class="metric-label">Peak weekday streams need</span>
+                <span class="metric-value">${monthData.costs.peak_hours_info.max_streams_needed} streams (${monthData.costs.peak_hours_info.weekday_peak_hours.length} hours)</span>
             </div>
             <div class="metric">
-                <span class="metric-label">Peak weekend hours need</span>
-                <span class="metric-value">${monthData.costs.peak_hours_info.max_hosts_needed} servers (${monthData.costs.peak_hours_info.weekend_peak_hours.length} hours)</span>
+                <span class="metric-label">Peak weekend streams need</span>
+                <span class="metric-value">${monthData.costs.peak_hours_info.max_streams_needed} streams (${monthData.costs.peak_hours_info.weekend_peak_hours.length} hours)</span>
             </div>
             <div class="metric">
-                <span class="metric-label">Total server-hours per month</span>
-                <span class="metric-value">${Math.round(monthData.costs.monthly_totals.infrastructure_cost / monthData.costs.hourly_rate).toLocaleString()} hours</span>
+                <span class="metric-label">Total stream-hours per month</span>
+                <span class="metric-value">${Math.round(monthData.costs.monthly_totals.infrastructure_cost / monthData.costs.hourly_rate_per_stream).toLocaleString()} hours</span>
             </div>
         </div>
 
@@ -2556,11 +2552,11 @@ function generateCalculationBreakdown(monthData, month, allResults) {
             </div>
 
             <div style="margin-bottom: 20px;">
-                <strong>Step 2: Server Configuration</strong>
+                <strong>Step 2: Stream Configuration</strong>
                 <div style="padding: 10px; background: white; border-radius: 4px; margin: 10px 0;">
-                    • Instance Type: <strong>${costs.instance_type}</strong><br>
-                    • Streams per Server: <strong>${costs.sessions_per_host} simultaneous streams</strong><br>
-                    • Cost per Server: <strong>$${costs.hourly_rate.toFixed(2)}/hour</strong>
+                    • Stream Class: <strong>${costs.instance_type}</strong><br>
+                    • Cost per Stream: <strong>$${costs.hourly_rate_per_stream.toFixed(4)}/hour</strong><br>
+                    • AWS charges per active stream, not per server
                 </div>
             </div>
 
@@ -2575,7 +2571,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                          • <strong>Example:</strong> Peak at 6 PM local applies to 6 PM in each timezone<br>
                          • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (6 PM Eastern → 6 PM Pacific)<br>
                          • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously (~8% of DAU)<br>
-                         • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
+                         • <strong>Max Streams Needed:</strong> ${costs.peak_hours_info.max_streams_needed} streams @ $${costs.hourly_rate_per_stream.toFixed(4)}/hour per stream<br>
                          • <em>Cost savings from timezone staggering of child-focused usage patterns</em>` :
                         `<strong>🎮 All Games Model - Adult Gaming with Local Time Patterns:</strong><br>
                          • <strong>Pattern Logic:</strong> Hourly patterns represent LOCAL TIME behavior (4 PM = afternoon gaming local anywhere)<br>
@@ -2584,7 +2580,7 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                          • <strong>Example:</strong> Peak at 4 PM local applies to 4 PM in each timezone<br>
                          • <strong>Natural Staggering:</strong> Peak usage spreads across 4 hours (4 PM Eastern → 4 PM Pacific)<br>
                          • <strong>Peak Concurrent:</strong> ${users.peak_concurrent.toLocaleString()} users online simultaneously (~15% of DAU)<br>
-                         • <strong>Max Servers Needed:</strong> ${costs.peak_hours_info.max_hosts_needed} servers (${costs.sessions_per_host} sessions each @ $${costs.hourly_rate}/hour)<br>
+                         • <strong>Max Streams Needed:</strong> ${costs.peak_hours_info.max_streams_needed} streams @ $${costs.hourly_rate_per_stream.toFixed(4)}/hour per stream<br>
                          • <em>Cost savings from timezone staggering of adult gaming patterns with higher engagement</em>`
                     }
                 </div>
@@ -2596,13 +2592,13 @@ function generateCalculationBreakdown(monthData, month, allResults) {
                     <div style="padding: 10px; background: white; border-radius: 4px; border-left: 3px solid #dc3545;">
                         <strong>Peak Hour (${peakTime})</strong><br>
                         • Users Online: <strong>${peakHourData.concurrent_users.toLocaleString()}</strong><br>
-                        • Servers Needed: <strong>${peakHourData.hosts_needed}</strong><br>
+                        • Streams Needed: <strong>${peakHourData.streams_needed}</strong><br>
                         • Hourly Cost: <strong>$${peakHourData.hourly_cost.toFixed(0)}</strong>
                     </div>
                     <div style="padding: 10px; background: white; border-radius: 4px; border-left: 3px solid #007bff;">
                         <strong>Off-Peak (${offPeakTime})</strong><br>
                         • Users Online: <strong>${offPeakData.concurrent_users.toLocaleString()}</strong><br>
-                        • Servers Needed: <strong>${offPeakData.hosts_needed}</strong><br>
+                        • Streams Needed: <strong>${offPeakData.streams_needed}</strong><br>
                         • Hourly Cost: <strong>$${offPeakData.hourly_cost.toFixed(0)}</strong>
                     </div>
                 </div>
@@ -2681,11 +2677,10 @@ function generateYearOverview(results) {
             const peakRatio = Number(data.users.peak_concurrent_ratio);
             const ratioText = Number.isFinite(peakRatio) ? `${(peakRatio * 100).toFixed(2)}%` : 'derived';
 
-            const sessionsPerHost = Number(data.costs.sessions_per_host) || 1;
-            const hourlyRate = Number(data.costs.hourly_rate) || 0;
-            const baselineHosts = Number(data.costs.baseline_hosts) || 0;
-            const maxHosts = Number(data.costs.peak_hours_info.max_hosts_needed) || 0;
-            const rawPeakHosts = Math.ceil(peakConcurrent / sessionsPerHost) || 0;
+            const hourlyRatePerStream = Number(data.costs.hourly_rate_per_stream) || 0;
+            const baselineStreams = Number(data.costs.baseline_streams) || 0;
+            const maxStreams = Number(data.costs.peak_hours_info.max_streams_needed) || 0;
+            const rawPeakStreams = Math.ceil(peakConcurrent) || 0;
 
             const weekdayDailyCost = Number(data.costs.monthly_totals.weekday_daily_cost) || 0;
             const weekendDailyCost = Number(data.costs.monthly_totals.weekend_daily_cost) || 0;
@@ -2701,10 +2696,10 @@ function generateYearOverview(results) {
                 `${totalUsers.toLocaleString()} users × ${ratioText} peak ratio = ${peakConcurrent.toLocaleString()} concurrent users`);
 
             const instanceTooltip = escapeTooltipText(
-                `${data.costs.instance_type}: ${sessionsPerHost} sessions/host @ $${hourlyRate.toFixed(2)}/hour`);
+                `${data.costs.instance_type}: $${hourlyRatePerStream.toFixed(4)}/hour per stream`);
 
-            const maxHostsTooltip = escapeTooltipText(
-                `ceil(${peakConcurrent.toLocaleString()} ÷ ${sessionsPerHost}) = ${rawPeakHosts.toLocaleString()} raw hosts\nBaseline floor: ${baselineHosts.toLocaleString()} • Final with buffer & HA: ${maxHosts.toLocaleString()}`);
+            const maxStreamsTooltip = escapeTooltipText(
+                `Peak concurrent users: ${peakConcurrent.toLocaleString()}\nBaseline floor: ${baselineStreams.toLocaleString()} • Final with buffer: ${maxStreams.toLocaleString()}`);
 
             const watchTimeTooltip = totalStreamingMinutes !== null
                 ? escapeTooltipText(
@@ -2730,12 +2725,12 @@ function generateYearOverview(results) {
                         <span class="metric-value">${data.users.peak_concurrent.toLocaleString()}</span>
                     </div>
                     <div class="metric" data-tooltip="${instanceTooltip}">
-                        <span class="metric-label">Server Type</span>
+                        <span class="metric-label">Stream Class</span>
                         <span class="metric-value">${data.costs.instance_type}</span>
                     </div>
-                    <div class="metric" data-tooltip="${maxHostsTooltip}">
-                        <span class="metric-label">Max Servers</span>
-                        <span class="metric-value">${data.costs.peak_hours_info.max_hosts_needed}</span>
+                    <div class="metric" data-tooltip="${maxStreamsTooltip}">
+                        <span class="metric-label">Max Streams</span>
+                        <span class="metric-value">${data.costs.peak_hours_info.max_streams_needed}</span>
                     </div>
                     <div class="metric" data-tooltip="${watchTimeTooltip}">
                         <span class="metric-label">Total Watch Time</span>
