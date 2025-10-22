@@ -234,29 +234,38 @@
     }
   },
   "infrastructure_specs": {
+    "comment": "AWS GameLift Streams pricing is PER STREAM, not per server. Source: https://aws.amazon.com/gamelift/streams/pricing/",
     "instance_types": {
       "gen4n_high": {
-        "description": "NVIDIA T4 - Cost optimized launch option",
-        "sessions_per_host": 2,
-        "hourly_rate": 0.5,
+        "description": "NVIDIA T4 Tensor GPU - 4 vCPU, 8GB VRAM, 16GB RAM",
+        "stream_class": "gen4n_high",
+        "gpu": "NVIDIA T4 Tensor GPU",
+        "hourly_rate_per_stream": 0.50,
+        "pricing_region": "us-east-1 (Ohio)",
+        "available_from_month": 1
+      },
+      "gen4n_ultra": {
+        "description": "NVIDIA T4 Tensor GPU - 8 vCPU, 16GB VRAM, 32GB RAM",
+        "stream_class": "gen4n_ultra",
+        "gpu": "NVIDIA T4 Tensor GPU",
+        "hourly_rate_per_stream": 0.93,
+        "pricing_region": "us-east-1 (Ohio)",
         "available_from_month": 1
       },
       "gen5n_high": {
-        "description": "NVIDIA A10G - Performance balanced",
-        "sessions_per_host": 4,
-        "hourly_rate": 0.77,
+        "description": "NVIDIA A10G Tensor GPU - 4 vCPU, 12GB VRAM, 16GB RAM",
+        "stream_class": "gen5n_high",
+        "gpu": "NVIDIA A10G Tensor GPU",
+        "hourly_rate_per_stream": 0.77,
+        "pricing_region": "us-east-1 (Ohio)",
         "available_from_month": 1
       },
-      "g4n_mid": {
-        "description": "NVIDIA T4 - High capacity",
-        "sessions_per_host": 6,
-        "hourly_rate": 0.77,
-        "available_from_month": 1
-      },
-      "g6n_high": {
-        "description": "NVIDIA T4 - High capacity",
-        "sessions_per_host": 6,
-        "hourly_rate": 1.0,
+      "gen5n_ultra": {
+        "description": "NVIDIA A10G Tensor GPU - 8 vCPU, 24GB VRAM, 32GB RAM",
+        "stream_class": "gen5n_ultra",
+        "gpu": "NVIDIA A10G Tensor GPU",
+        "hourly_rate_per_stream": 1.45,
+        "pricing_region": "us-east-1 (Ohio)",
         "available_from_month": 1
       }
     },
